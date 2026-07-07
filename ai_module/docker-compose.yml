@@ -1,0 +1,12 @@
+version: "3.9"
+services:
+  ai_service:
+    build: .
+    container_name: ai_service
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+      - ./logs:/app/logs
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
