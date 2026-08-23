@@ -1,0 +1,57 @@
+# ==============================
+# Model Architecture
+# ==============================
+model:
+  architecture: "yolov8n"           # yolov8n | yolov8s | yolov8m
+  pretrained_weights: "yolov8n.pt"
+  num_classes: 1
+  class_names:
+    - "fracture"
+
+# ==============================
+# Training Parameters
+# ==============================
+training:
+  epochs: 50
+  batch_size: 16
+  image_size: 640
+  learning_rate: 0.01
+  weight_decay: 0.0005
+  momentum: 0.937
+  optimizer: "SGD"                  # SGD | Adam | AdamW
+  early_stopping_patience: 15
+  save_period: 10                   # save checkpoint every N epochs
+  device: "auto"                    # auto | cpu | 0 | 0,1
+
+  # Augmentation (controlled by albumentations in augmentation.py)
+  use_custom_augmentation: true
+  augmentation_probability: 0.5
+
+# ==============================
+# Inference Parameters
+# ==============================
+inference:
+  confidence_threshold: 0.25
+  iou_threshold: 0.45
+  image_size: 640
+  max_detections: 10
+  device: "auto"
+
+# ==============================
+# Export
+# ==============================
+export:
+  format: "onnx"                    # onnx | torchscript | trt
+  opset: 17
+  dynamic: false
+  simplify: true
+
+# ==============================
+# Paths
+# ==============================
+paths:
+  checkpoints: "models/checkpoints/"
+  production: "models/production/"
+  best_model: "models/production/best_model.pt"
+  logs: "logs/"
+  mlflow_tracking: "mlruns/"

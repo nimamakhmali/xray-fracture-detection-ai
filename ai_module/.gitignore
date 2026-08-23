@@ -1,0 +1,86 @@
+# ==============================
+# Python
+# ==============================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ==============================
+# Virtual Environment
+# ==============================
+.venv/
+venv/
+env/
+ENV/
+
+# ==============================
+# Data — never commit raw data
+# ==============================
+data/raw/*
+data/processed/*
+data/augmented/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/augmented/.gitkeep
+
+# ==============================
+# Models — large binary files
+# ==============================
+models/checkpoints/*
+models/production/*
+!models/checkpoints/.gitkeep
+!models/production/.gitkeep
+*.pt
+*.pth
+*.onnx
+*.engine
+*.trt
+
+# ==============================
+# Logs & Experiments
+# ==============================
+logs/*
+!logs/.gitkeep
+mlruns/*
+!mlruns/.gitkeep
+runs/
+wandb/
+
+# ==============================
+# Environment & Secrets
+# ==============================
+.env
+*.env
+
+# ==============================
+# IDE
+# ==============================
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ==============================
+# OS
+# ==============================
+.DS_Store
+Thumbs.db
+
+# ==============================
+# Jupyter
+# ==============================
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ==============================
+# Coverage & Test artifacts
+# ==============================
+.coverage
+htmlcov/
+.pytest_cache/
