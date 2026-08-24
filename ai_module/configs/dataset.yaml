@@ -1,85 +1,62 @@
-# ==============================
-# Dataset Identity
-# ==============================
 dataset:
-  name: "fracture-detection-combined"
-  version: "1.0.0"
-  description: >
-    Combined dataset from GRAZPEDWRI-DX and FracAtlas
-    for bone fracture detection in X-ray images.
+  name: fracture-detection-combined
+  version: 1.0.0
+  description: 'Combined dataset from GRAZPEDWRI-DX and FracAtlas for bone fracture
+    detection in X-ray images.
 
-# ==============================
-# Source Datasets
-# ==============================
+    '
 sources:
-  - name: "GRAZPEDWRI-DX"
-    description: "Pediatric wrist X-ray dataset"
-    url: "https://figshare.com/articles/dataset/GRAZPEDWRI-DX/14825193"
-    local_path: "data/raw/grazpedwri/"
-
-  - name: "FracAtlas"
-    description: "Multi-region fracture atlas dataset"
-    url: "https://figshare.com/articles/dataset/FracAtlas/22363012"
-    local_path: "data/raw/fracatlas/"
-
-# ==============================
-# Classes
-# ==============================
+- name: FracAtlas
+  description: Multi-region fracture atlas dataset
+  url: https://figshare.com/articles/dataset/FracAtlas/22363012
+  local_path: ../fracatlas
+- name: GRAZPEDWRI-DX
+  description: Pediatric wrist X-ray dataset
+  url: https://figshare.com/articles/dataset/GRAZPEDWRI-DX/14825193
+  local_path: ../GRAZPEDWRI-DX
 nc: 1
 names:
-  - "fracture"
-
-# ==============================
-# Processed Data Paths (YOLO format)
-# ==============================
-path: "data/processed"
-train: "train/images"
-val: "val/images"
-test: "test/images"
-
-# ==============================
-# Split Configuration
-# ==============================
+- fracture
+path: data/processed
+train: train/images
+val: val/images
+test: test/images
 split:
-  train: 0.70
+  train: 0.7
   val: 0.15
   test: 0.15
   random_seed: 42
   stratified: true
-
-# ==============================
-# Image Configuration
-# ==============================
 image:
   target_size: 640
-  channels: 3                       # converted to 3ch even if grayscale
+  channels: 3
   formats_supported:
-    - "jpg"
-    - "jpeg"
-    - "png"
-    - "dcm"                         # DICOM
-
-# ==============================
-# Preprocessing
-# ==============================
+  - jpg
+  - jpeg
+  - png
+  - dcm
 preprocessing:
   apply_clahe: true
   clahe_clip_limit: 2.0
-  clahe_tile_grid_size: [8, 8]
+  clahe_tile_grid_size:
+  - 8
+  - 8
   normalize: true
-  normalize_mean: [0.485, 0.456, 0.406]
-  normalize_std: [0.229, 0.224, 0.225]
-
-# ==============================
-# Dataset Statistics (filled after prepare_dataset.py)
-# ==============================
+  normalize_mean:
+  - 0.485
+  - 0.456
+  - 0.406
+  normalize_std:
+  - 0.229
+  - 0.224
+  - 0.225
 stats:
-  total_images: 0
-  train_images: 0
-  val_images: 0
-  test_images: 0
-  fracture_positive: 0
-  fracture_negative: 0
+  total_images: 24395
+  train_images: 16960
+  val_images: 3707
+  test_images: 3728
+  fracture_positive: 14263
+  fracture_negative: 10132
   avg_image_width: 0
   avg_image_height: 0
   avg_annotations_per_image: 0
