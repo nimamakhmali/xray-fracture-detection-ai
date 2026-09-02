@@ -1,47 +1,51 @@
 """
-Dataset validator for YOLO-format fracture detection datasets.
+Final dataset validator — the last gate before training.
 
-Usage as module:
-    from src.data.validator import DatasetValidator
-    v = DatasetValidator(processed_dir=Path("data/processed"))
-    report = v.validate()
+Extends the original file-level checks with the checks explicitly
+required by the audit spec but previously MISSING:
+    - patient/study leakage across splits (via canonical manifest)
+    - exact-hash content leakage across splits
+    - dataset.yaml vs actual computed statistics consistency
+    - train/val/test ratio sanity check
+    - annotation_status distribution (flags negative_from_invalid_boxes)
 
-Usage as CLI:
-    python -m src.data.validator --data data/processed
-    python scripts/validate_dataset.py
+TRAINING_STATUS is only READY when ALL of these pass.
 """
-
 import argparse
-import json
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import cv2
 import numpy as np
+import yaml
 
 from src.utils.logger import get_logger
-from src.utils.file_utils import save_json, IMAGE_EXTENSIONS
+from src.utils.file_utils import save_json, IMAGE_EXTENSIONS, compute_file_hash
+from src.data.manifest import ManifestStore, UNAVAILABLE
+from src.utils.image_utils import check_image_integrity
+
 
 logger = get_logger(__name__)
 
-VALID_CLASS_IDS = {0}  # Phase 1: fracture only
+VALID_CLASS_IDS = {0}
 SPLITS = ["train", "val", "test"]
+SPLIT_RATIO_TOLERANCE = 0.05  # allow +/-5% deviation from target ratios (group splits won't be exact)
+TARGET_RATIOS = {"train": 0.70, "val": 0.15, "test": 0.15}
+MAX_ACCEPTABLE_INVALID_ANNOTATION_RATIO = 0.02  # 2% negative_from_invalid_boxes triggers concern
 
+NOT_CHECKED = "NOT_CHECKED_DUE_TO_PRIOR_ERROR"
 
-# ---------------------------------------------------------------------------
-# Data structures
-# ---------------------------------------------------------------------------
 
 @dataclass
 class LabelIssue:
     image_path: str
     label_path: str
-    issue_type: str          # MISSING | MALFORMED | OUT_OF_RANGE | ZERO_AREA | UNKNOWN_CLASS
+    issue_type: str
     line_number: Optional[int] = None
     raw_line: Optional[str] = None
     detail: Optional[str] = None
-    severity: str = "ERROR"  # ERROR | WARNING | INFO
+    severity: str = "ERROR"
 
 
 @dataclass
@@ -79,52 +83,36 @@ class ValidationReport:
     issues: List[dict] = field(default_factory=list)
     critical_errors: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    # --- NEW fields ---
 
+    # NEW fields — explicitly typed as "not checked yet" by default, never {}
+    patient_leakage: object = field(default_factory=lambda: NOT_CHECKED)
+    hash_leakage: object = field(default_factory=lambda: NOT_CHECKED)
+    dataset_yaml_consistency: object = field(default_factory=lambda: NOT_CHECKED)
+    split_ratio_check: object = field(default_factory=lambda: NOT_CHECKED)
+    annotation_status_distribution: object = field(default_factory=lambda: NOT_CHECKED)
+    manifest_summary: object = field(default_factory=lambda: NOT_CHECKED)
 
-# ---------------------------------------------------------------------------
-# Core validator
-# ---------------------------------------------------------------------------
 
 class DatasetValidator:
-    """
-    Validates a processed YOLO-format dataset.
-
-    The validator checks:
-    - Image-label correspondence
-    - YOLO label format correctness
-    - Coordinate normalisation
-    - Class ID validity
-    - Image readability
-    - Duplicate detection
-    - Positive/negative sample distribution
-
-    Empty label files are treated as valid negative samples
-    (configurable via allow_empty_labels parameter).
-    """
-
     def __init__(
         self,
         processed_dir: Path,
         allow_empty_labels: bool = True,
         report_dir: Optional[Path] = None,
+        dataset_yaml_path: Optional[Path] = None,
+        skip_integrity_recheck: bool = False,  # NEW
     ):
-        """
-        Args:
-            processed_dir:     Root of data/processed/ directory.
-            allow_empty_labels: If True, images with no annotations are valid
-                                negative samples (not errors).
-            report_dir:        Where to save the JSON report. Defaults to
-                               reports/ in project root.
-        """
+        
         self.processed_dir = Path(processed_dir)
         self.allow_empty_labels = allow_empty_labels
-
-        if report_dir is None:
-            self.report_dir = self.processed_dir.parent.parent / "reports"
-        else:
-            self.report_dir = Path(report_dir)
-
+        self.skip_integrity_recheck = skip_integrity_recheck  # NEW
+        self.report_dir = Path(report_dir) if report_dir else self.processed_dir.parent.parent / "reports"
         self.report_dir.mkdir(parents=True, exist_ok=True)
+        self.dataset_yaml_path = (
+            Path(dataset_yaml_path) if dataset_yaml_path
+            else self.processed_dir.parent / "configs" / "dataset.yaml"
+        )
         self.report = ValidationReport()
 
     # ------------------------------------------------------------------
@@ -132,35 +120,20 @@ class DatasetValidator:
     # ------------------------------------------------------------------
 
     def validate(self, save_report: bool = True) -> ValidationReport:
-        """
-        Run full validation pipeline.
-
-        Args:
-            save_report: If True, saves JSON report to reports/.
-
-        Returns:
-            Populated ValidationReport.
-        """
         logger.info("=" * 60)
         logger.info("Starting dataset validation")
         logger.info(f"Dataset root: {self.processed_dir}")
         logger.info("=" * 60)
 
-        all_image_hashes: Dict[str, str] = {}  # hash -> path for duplicate detection
+        all_image_hashes: Dict[str, str] = {}
 
         for split in SPLITS:
             split_dir = self.processed_dir / split
             if not split_dir.exists():
-                self.report.critical_errors.append(
-                    f"Split directory missing: {split_dir}"
-                )
-                logger.error(f"Split directory missing: {split_dir}")
+                self.report.critical_errors.append(f"Split directory missing: {split_dir}")
                 continue
-
             stats = self._validate_split(split, split_dir, all_image_hashes)
             self.report.split_stats[split] = asdict(stats)
-
-            # Aggregate totals
             self.report.total_images += stats.total_images
             self.report.total_labels += stats.total_labels
             self.report.positive_images += stats.positive_images
@@ -171,177 +144,223 @@ class DatasetValidator:
             self.report.corrupted_images += stats.corrupted_images
             self.report.invalid_label_files += stats.invalid_label_files
 
-        # Determine final status
+        # --- NEW: manifest-based checks (leakage + consistency) ---
+        self._validate_manifest_and_leakage()
+        self._validate_against_dataset_yaml()
+        self._validate_split_ratios()
+
         self.report.status = self._determine_status()
 
         if save_report:
-            report_path = self.report_dir / "validation_report.json"
-            save_json(asdict(self.report), report_path)
+            save_json(asdict(self.report), self.report_dir / "validation_report.json")
 
         self._print_summary()
         return self.report
 
-    def validate_single_label(
-        self, label_path: Path, image_path: Optional[Path] = None
-    ) -> List[LabelIssue]:
-        """
-        Validate a single label file.
+    # ------------------------------------------------------------------
+    # NEW: manifest / leakage / consistency checks
+    # ------------------------------------------------------------------
 
-        Args:
-            label_path:  Path to .txt YOLO label.
-            image_path:  Corresponding image for dimension checks (optional).
+    def _validate_manifest_and_leakage(self) -> None:
+        manifest_path = self.processed_dir / "manifest.csv"
+        if not manifest_path.exists():
+            self.report.critical_errors.append(
+                "manifest.csv not found — cannot verify patient/study leakage. "
+                "TRAINING MUST BE BLOCKED."
+            )
+            self.report.patient_leakage = NOT_CHECKED
+            self.report.hash_leakage = NOT_CHECKED
+            self.report.manifest_summary = NOT_CHECKED
+            self.report.annotation_status_distribution = NOT_CHECKED
+            return
 
-        Returns:
-            List of LabelIssue objects.
-        """
+        try:
+            store = ManifestStore.load(manifest_path)
+        except Exception as e:
+            self.report.critical_errors.append(f"manifest.csv failed to load: {e}")
+            self.report.patient_leakage = NOT_CHECKED
+            self.report.hash_leakage = NOT_CHECKED
+            self.report.manifest_summary = NOT_CHECKED
+            self.report.annotation_status_distribution = NOT_CHECKED
+            return
+
+        self.report.manifest_summary = store.summary()
+
+        patient_leak = store.check_patient_leakage()
+        self.report.patient_leakage = patient_leak
+        if patient_leak["train_val_overlap"] or patient_leak["train_test_overlap"] or patient_leak["val_test_overlap"]:
+            self.report.critical_errors.append(
+                f"PATIENT-LEVEL LEAKAGE DETECTED: {patient_leak}. TRAINING BLOCKED."
+            )
+        if patient_leak.get("datasets_with_unknown_patient_id"):
+            self.report.warnings.append(
+                f"Datasets with UNVERIFIABLE patient_id (leakage cannot be proven, only "
+                f"assumed absent): {patient_leak['datasets_with_unknown_patient_id']}"
+            )
+
+        hash_leak = store.check_hash_leakage()
+        self.report.hash_leakage = hash_leak
+        if any(hash_leak.values()):
+            self.report.critical_errors.append(
+                f"EXACT-DUPLICATE IMAGE CONTENT LEAKS ACROSS SPLITS: {hash_leak}. TRAINING BLOCKED."
+            )
+
+        status_dist = self.report.manifest_summary.get("annotation_status_distribution", {})
+        self.report.annotation_status_distribution = status_dist
+        bad = status_dist.get("negative_from_invalid_boxes", 0)
+        total = sum(status_dist.values()) or 1
+        ratio = bad / total
+        if ratio > MAX_ACCEPTABLE_INVALID_ANNOTATION_RATIO:
+            self.report.critical_errors.append(
+                f"{bad} samples ({ratio:.2%}) are labeled negative ONLY because their "
+                f"original fracture annotation was geometrically invalid. Exceeds "
+                f"{MAX_ACCEPTABLE_INVALID_ANNOTATION_RATIO:.0%} tolerance. TRAINING BLOCKED."
+            )
+        elif bad > 0:
+            self.report.warnings.append(
+                f"{bad} samples ({ratio:.2%}) are 'negative_from_invalid_boxes' — "
+                f"within tolerance but should be manually spot-checked."
+            )
+
+
+
+    def _validate_against_dataset_yaml(self) -> None:
+        if not self.dataset_yaml_path.exists():
+            self.report.warnings.append(
+                f"dataset.yaml not found at {self.dataset_yaml_path} — cannot cross-check."
+            )
+            return
+        with open(self.dataset_yaml_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        stats = cfg.get("stats", {})
+
+        mismatches = {}
+        if stats.get("total_images") != self.report.total_images:
+            mismatches["total_images"] = {
+                "dataset_yaml": stats.get("total_images"),
+                "actual_computed": self.report.total_images,
+            }
+        if stats.get("fracture_positive") != self.report.positive_images:
+            mismatches["fracture_positive"] = {
+                "dataset_yaml": stats.get("fracture_positive"),
+                "actual_computed": self.report.positive_images,
+            }
+
+        self.report.dataset_yaml_consistency = {
+            "checked": True,
+            "mismatches": mismatches,
+            "is_consistent": not mismatches,
+        }
+        if mismatches:
+            self.report.critical_errors.append(
+                f"dataset.yaml does NOT match actual processed dataset: {mismatches}. "
+                f"TRAINING BLOCKED — regenerate dataset.yaml via prepare_dataset.py."
+            )
+
+    def _validate_split_ratios(self) -> None:
+        total = self.report.total_images
+        if total == 0:
+            return
+        result = {}
+        for split, target in TARGET_RATIOS.items():
+            actual = self.report.split_stats.get(split, {}).get("total_images", 0) / total
+            deviation = abs(actual - target)
+            result[split] = {
+                "target": target, "actual": round(actual, 4),
+                "deviation": round(deviation, 4),
+                "within_tolerance": deviation <= SPLIT_RATIO_TOLERANCE,
+            }
+            if deviation > SPLIT_RATIO_TOLERANCE:
+                self.report.warnings.append(
+                    f"Split '{split}' ratio {actual:.1%} deviates from target {target:.0%} "
+                    f"by more than {SPLIT_RATIO_TOLERANCE:.0%} (expected with group-level "
+                    f"splitting — verify this is intentional, not a bug)."
+                )
+        self.report.split_ratio_check = result
+
+    # ------------------------------------------------------------------
+    # Existing per-file checks (kept, unchanged in spirit)
+    # ------------------------------------------------------------------
+
+    def validate_single_label(self, label_path: Path, image_path: Optional[Path] = None) -> List[LabelIssue]:
         issues = []
-
         if not label_path.exists():
-            issues.append(LabelIssue(
-                image_path=str(image_path or "unknown"),
-                label_path=str(label_path),
-                issue_type="MISSING",
-                detail="Label file does not exist",
-                severity="ERROR",
-            ))
+            issues.append(LabelIssue(str(image_path or "unknown"), str(label_path), "MISSING",
+                                      detail="Label file does not exist", severity="ERROR"))
             return issues
-
         try:
             lines = label_path.read_text(encoding="utf-8").strip().splitlines()
         except Exception as e:
-            issues.append(LabelIssue(
-                image_path=str(image_path or "unknown"),
-                label_path=str(label_path),
-                issue_type="MALFORMED",
-                detail=f"Cannot read label file: {e}",
-                severity="ERROR",
-            ))
+            issues.append(LabelIssue(str(image_path or "unknown"), str(label_path), "MALFORMED",
+                                      detail=f"Cannot read label file: {e}", severity="ERROR"))
             return issues
-
-        # Empty label file — valid negative sample if configured
         if not lines:
             return issues
-
         seen_boxes = set()
-
         for line_no, line in enumerate(lines, start=1):
-            line_issues = self._validate_label_line(
-                line=line,
-                line_no=line_no,
-                label_path=label_path,
-                image_path=image_path,
-                seen_boxes=seen_boxes,
-            )
-            issues.extend(line_issues)
-
+            issues.extend(self._validate_label_line(line, line_no, label_path, image_path, seen_boxes))
         return issues
 
-    # ------------------------------------------------------------------
-    # Private methods
-    # ------------------------------------------------------------------
-
-    def _validate_split(
-        self,
-        split: str,
-        split_dir: Path,
-        all_image_hashes: Dict[str, str],
-    ) -> SplitStats:
-        """Validate one split (train/val/test)."""
+    def _validate_split(self, split: str, split_dir: Path, all_image_hashes: Dict[str, str]) -> SplitStats:
         stats = SplitStats(split=split)
-        images_dir = split_dir / "images"
-        labels_dir = split_dir / "labels"
+        images_dir, labels_dir = split_dir / "images", split_dir / "labels"
 
-        if not images_dir.exists():
-            self.report.critical_errors.append(
-                f"images/ directory missing in split '{split}'"
-            )
+        if not images_dir.exists() or not labels_dir.exists():
+            self.report.critical_errors.append(f"images/ or labels/ missing in split '{split}'")
             return stats
 
-        if not labels_dir.exists():
-            self.report.critical_errors.append(
-                f"labels/ directory missing in split '{split}'"
-            )
-            return stats
-
-        image_paths = [
-            p for p in sorted(images_dir.iterdir())
-            if p.suffix.lower() in IMAGE_EXTENSIONS
-        ]
+        image_paths = [p for p in sorted(images_dir.iterdir()) if p.suffix.lower() in IMAGE_EXTENSIONS]
         label_paths = {p.stem: p for p in labels_dir.glob("*.txt")}
-
         stats.total_images = len(image_paths)
-        logger.info(f"[{split}] Found {stats.total_images} images, "
-                    f"{len(label_paths)} label files")
 
-        # Check for orphan labels (label without image)
         image_stems = {p.stem for p in image_paths}
         for stem, lp in label_paths.items():
             if stem not in image_stems:
                 stats.orphan_labels += 1
                 self.report.issues.append(asdict(LabelIssue(
-                    image_path="N/A",
-                    label_path=str(lp),
-                    issue_type="ORPHAN_LABEL",
-                    detail="Label file has no corresponding image",
-                    severity="WARNING",
+                    "N/A", str(lp), "ORPHAN_LABEL",
+                    detail="Label file has no corresponding image", severity="WARNING",
                 )))
 
         for img_path in image_paths:
-            # --- Image validity ---
             if not self._check_image(img_path, stats):
                 continue
-
-            # --- Duplicate detection ---
             self._check_duplicate(img_path, all_image_hashes, stats)
 
-            # --- Label correspondence ---
             label_path = labels_dir / f"{img_path.stem}.txt"
-
             if not label_path.exists():
+                # NOTE: by pipeline design, EVERY valid sample gets a label file
+                # (even empty ones for negatives). A missing label here means a
+                # real bug, not a legitimate negative — treat as ERROR.
                 stats.missing_labels += 1
                 self.report.issues.append(asdict(LabelIssue(
-                    image_path=str(img_path),
-                    label_path=str(label_path),
-                    issue_type="MISSING",
-                    detail="No label file for this image",
-                    severity="WARNING" if self.allow_empty_labels else "ERROR",
+                    str(img_path), str(label_path), "MISSING",
+                    detail="No label file — pipeline should always write one (even if empty)",
+                    severity="ERROR",
                 )))
-                stats.negative_images += 1
                 continue
 
-            # --- Label content ---
             issues = self.validate_single_label(label_path, img_path)
             error_issues = [i for i in issues if i.severity == "ERROR"]
-
             if error_issues:
                 stats.invalid_label_files += 1
                 for iss in issues:
                     self.report.issues.append(asdict(iss))
             else:
-                # Count boxes
-                lines = label_path.read_text().strip().splitlines()
-                valid_lines = [l for l in lines if l.strip()]
-                box_count = len(valid_lines)
-                stats.total_boxes += box_count
-
-                # Track per-class counts
-                for line in valid_lines:
+                lines = [l for l in label_path.read_text().strip().splitlines() if l.strip()]
+                stats.total_boxes += len(lines)
+                for line in lines:
                     parts = line.strip().split()
                     if len(parts) >= 5:
                         try:
                             cls = int(parts[0])
-                            self.report.boxes_by_class[cls] = (
-                                self.report.boxes_by_class.get(cls, 0) + 1
-                            )
+                            self.report.boxes_by_class[cls] = self.report.boxes_by_class.get(cls, 0) + 1
                         except ValueError:
                             pass
-
-                if box_count > 0:
+                if lines:
                     stats.positive_images += 1
                 else:
                     stats.negative_images += 1
-
-                # Add warnings even for otherwise valid labels
                 for iss in issues:
                     if iss.severity == "WARNING":
                         self.report.issues.append(asdict(iss))
@@ -351,304 +370,149 @@ class DatasetValidator:
 
     def _check_image(self, img_path: Path, stats: SplitStats) -> bool:
         """
-        Check image readability and basic validity.
+        Uses the deep integrity check by default (catches truncated JPEGs
+        that cv2.imread() silently tolerates). This is slower but
+        authoritative — see src/utils/image_utils.check_image_integrity.
 
-        Returns:
-            True if image is usable, False if corrupted/unreadable.
+        Use --skip-integrity-recheck for faster iteration ONLY when you
+        already trust these images were verified during prepare_dataset.py
+        (e.g. re-running validator just to check labels/manifest after a
+        clean prepare run).
         """
-        if img_path.stat().st_size == 0:
+        if self.skip_integrity_recheck:
+            if img_path.stat().st_size == 0:
+                stats.corrupted_images += 1
+                self.report.issues.append(asdict(LabelIssue(
+                    str(img_path), "N/A", "CORRUPTED", detail="Zero-byte file", severity="ERROR")))
+                return False
+            return True
+
+        is_ok, status = check_image_integrity(img_path)
+        if not is_ok:
             stats.corrupted_images += 1
             self.report.issues.append(asdict(LabelIssue(
-                image_path=str(img_path),
-                label_path="N/A",
-                issue_type="CORRUPTED",
-                detail="Zero-byte file",
-                severity="ERROR",
-            )))
+                str(img_path), "N/A", "CORRUPTED", detail=status, severity="ERROR")))
             return False
-
-        img = cv2.imread(str(img_path))
-        if img is None:
-            stats.corrupted_images += 1
-            self.report.issues.append(asdict(LabelIssue(
-                image_path=str(img_path),
-                label_path="N/A",
-                issue_type="CORRUPTED",
-                detail="cv2 cannot open image",
-                severity="ERROR",
-            )))
-            return False
-
         return True
 
-    def _check_duplicate(
-        self,
-        img_path: Path,
-        all_hashes: Dict[str, str],
-        stats: SplitStats,
-    ) -> None:
-        """Detect exact duplicate files via MD5 hash."""
-        from src.utils.file_utils import compute_file_hash
+    
+    def _check_duplicate(self, img_path: Path, all_hashes: Dict[str, str], stats: SplitStats) -> None:
         file_hash = compute_file_hash(img_path)
         if not file_hash:
             return
-
         if file_hash in all_hashes:
             self.report.duplicate_images += 1
             self.report.issues.append(asdict(LabelIssue(
-                image_path=str(img_path),
-                label_path="N/A",
-                issue_type="DUPLICATE",
-                detail=f"Exact duplicate of {all_hashes[file_hash]}",
-                severity="WARNING",
-            )))
+                str(img_path), "N/A", "DUPLICATE",
+                detail=f"Exact duplicate of {all_hashes[file_hash]}", severity="WARNING")))
         else:
             all_hashes[file_hash] = str(img_path)
 
-    def _validate_label_line(
-        self,
-        line: str,
-        line_no: int,
-        label_path: Path,
-        image_path: Optional[Path],
-        seen_boxes: set,
-    ) -> List[LabelIssue]:
-        """Validate a single line in a YOLO label file."""
+    def _validate_label_line(self, line, line_no, label_path, image_path, seen_boxes) -> List[LabelIssue]:
         issues = []
         stripped = line.strip()
-
         if not stripped:
             return issues
-
         parts = stripped.split()
-
-        # Must have exactly 5 fields
         if len(parts) != 5:
-            issues.append(LabelIssue(
-                image_path=str(image_path or "unknown"),
-                label_path=str(label_path),
-                issue_type="MALFORMED",
-                line_number=line_no,
-                raw_line=stripped,
-                detail=f"Expected 5 fields, got {len(parts)}",
-                severity="ERROR",
-            ))
+            issues.append(LabelIssue(str(image_path or "unknown"), str(label_path), "MALFORMED",
+                                      line_no, stripped, f"Expected 5 fields, got {len(parts)}", "ERROR"))
             return issues
-
-        # Parse fields
         try:
-            cls_id = int(parts[0])
-            xc = float(parts[1])
-            yc = float(parts[2])
-            w = float(parts[3])
-            h = float(parts[4])
+            cls_id, xc, yc, w, h = int(parts[0]), float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
         except ValueError as e:
-            issues.append(LabelIssue(
-                image_path=str(image_path or "unknown"),
-                label_path=str(label_path),
-                issue_type="MALFORMED",
-                line_number=line_no,
-                raw_line=stripped,
-                detail=f"Non-numeric value: {e}",
-                severity="ERROR",
-            ))
+            issues.append(LabelIssue(str(image_path or "unknown"), str(label_path), "MALFORMED",
+                                      line_no, stripped, f"Non-numeric value: {e}", "ERROR"))
             return issues
-
-        # Check NaN/Inf
         for val, name in [(xc, "x_center"), (yc, "y_center"), (w, "width"), (h, "height")]:
             if not np.isfinite(val):
-                issues.append(LabelIssue(
-                    image_path=str(image_path or "unknown"),
-                    label_path=str(label_path),
-                    issue_type="MALFORMED",
-                    line_number=line_no,
-                    raw_line=stripped,
-                    detail=f"{name} is NaN or Inf: {val}",
-                    severity="ERROR",
-                ))
+                issues.append(LabelIssue(str(image_path or "unknown"), str(label_path), "MALFORMED",
+                                          line_no, stripped, f"{name} is NaN or Inf: {val}", "ERROR"))
                 return issues
-
-        # Unknown class
         if cls_id not in VALID_CLASS_IDS:
-            issues.append(LabelIssue(
-                image_path=str(image_path or "unknown"),
-                label_path=str(label_path),
-                issue_type="UNKNOWN_CLASS",
-                line_number=line_no,
-                raw_line=stripped,
-                detail=f"Class ID {cls_id} not in valid set {VALID_CLASS_IDS}",
-                severity="ERROR",
-            ))
-
-        # Coordinate range check
+            issues.append(LabelIssue(str(image_path or "unknown"), str(label_path), "UNKNOWN_CLASS",
+                                      line_no, stripped, f"Class ID {cls_id} not in {VALID_CLASS_IDS}", "ERROR"))
         out_of_range = False
-        if not (0.0 <= xc <= 1.0):
-            issues.append(LabelIssue(
-                image_path=str(image_path or "unknown"),
-                label_path=str(label_path),
-                issue_type="OUT_OF_RANGE",
-                line_number=line_no,
-                raw_line=stripped,
-                detail=f"x_center={xc:.6f} outside [0, 1]",
-                severity="ERROR",
-            ))
-            out_of_range = True
-
-        if not (0.0 <= yc <= 1.0):
-            issues.append(LabelIssue(
-                image_path=str(image_path or "unknown"),
-                label_path=str(label_path),
-                issue_type="OUT_OF_RANGE",
-                line_number=line_no,
-                raw_line=stripped,
-                detail=f"y_center={yc:.6f} outside [0, 1]",
-                severity="ERROR",
-            ))
-            out_of_range = True
-
-        if not (0.0 < w <= 1.0):
-            issues.append(LabelIssue(
-                image_path=str(image_path or "unknown"),
-                label_path=str(label_path),
-                issue_type="OUT_OF_RANGE",
-                line_number=line_no,
-                raw_line=stripped,
-                detail=f"width={w:.6f} outside (0, 1]",
-                severity="ERROR",
-            ))
-            out_of_range = True
-
-        if not (0.0 < h <= 1.0):
-            issues.append(LabelIssue(
-                image_path=str(image_path or "unknown"),
-                label_path=str(label_path),
-                issue_type="OUT_OF_RANGE",
-                line_number=line_no,
-                raw_line=stripped,
-                detail=f"height={h:.6f} outside (0, 1]",
-                severity="ERROR",
-            ))
-            out_of_range = True
-
+        for val, lo, hi, name in [(xc, 0.0, 1.0, "x_center"), (yc, 0.0, 1.0, "y_center")]:
+            if not (lo <= val <= hi):
+                issues.append(LabelIssue(str(image_path or "unknown"), str(label_path), "OUT_OF_RANGE",
+                                          line_no, stripped, f"{name}={val:.6f} outside [0,1]", "ERROR"))
+                out_of_range = True
+        for val, name in [(w, "width"), (h, "height")]:
+            if not (0.0 < val <= 1.0):
+                issues.append(LabelIssue(str(image_path or "unknown"), str(label_path), "OUT_OF_RANGE",
+                                          line_no, stripped, f"{name}={val:.6f} outside (0,1]", "ERROR"))
+                out_of_range = True
         if out_of_range:
             self.report.out_of_range_boxes += 1
-
-        # Zero-area box
         if w <= 0 or h <= 0:
             self.report.zero_area_boxes += 1
-            issues.append(LabelIssue(
-                image_path=str(image_path or "unknown"),
-                label_path=str(label_path),
-                issue_type="ZERO_AREA",
-                line_number=line_no,
-                raw_line=stripped,
-                detail=f"width={w:.6f}, height={h:.6f}",
-                severity="ERROR",
-            ))
-
-        # Duplicate annotation within same label file
+            issues.append(LabelIssue(str(image_path or "unknown"), str(label_path), "ZERO_AREA",
+                                      line_no, stripped, f"width={w:.6f}, height={h:.6f}", "ERROR"))
         box_key = (cls_id, round(xc, 6), round(yc, 6), round(w, 6), round(h, 6))
         if box_key in seen_boxes:
             self.report.duplicate_annotations += 1
-            issues.append(LabelIssue(
-                image_path=str(image_path or "unknown"),
-                label_path=str(label_path),
-                issue_type="DUPLICATE_ANNOTATION",
-                line_number=line_no,
-                raw_line=stripped,
-                detail="Duplicate bounding box within label file",
-                severity="WARNING",
-            ))
+            issues.append(LabelIssue(str(image_path or "unknown"), str(label_path), "DUPLICATE_ANNOTATION",
+                                      line_no, stripped, "Duplicate bbox within label file", "WARNING"))
         else:
             seen_boxes.add(box_key)
-
         return issues
 
     def _determine_status(self) -> str:
-        """
-        Determine final readiness status.
-
-        Rules:
-        - Any critical_errors → NOT_READY
-        - Any ERROR-severity issues → NOT_READY
-        - Otherwise → READY_FOR_TRAINING
-        """
         if self.report.critical_errors:
             return "NOT_READY_FOR_TRAINING"
-
-        error_issues = [
-            i for i in self.report.issues
-            if i.get("severity") == "ERROR"
-        ]
-        if error_issues:
+        if any(i.get("severity") == "ERROR" for i in self.report.issues):
             return "NOT_READY_FOR_TRAINING"
-
         if self.report.total_images == 0:
             return "NOT_READY_FOR_TRAINING"
-
         return "READY_FOR_TRAINING"
 
     def _print_summary(self) -> None:
-        """Print human-readable validation summary."""
         r = self.report
+
+        def _fmt(value):
+            return "⏭️  NOT CHECKED (blocked earlier — see critical_errors)" if value == NOT_CHECKED else value
+
         logger.info("")
         logger.info("=" * 60)
         logger.info("VALIDATION SUMMARY")
         logger.info("=" * 60)
-        logger.info(f"  Total images       : {r.total_images}")
-        logger.info(f"  Total labels       : {r.total_labels}")
-        logger.info(f"  Positive images    : {r.positive_images}")
-        logger.info(f"  Negative images    : {r.negative_images}")
-        logger.info(f"  Total boxes        : {r.total_boxes}")
-        logger.info(f"  Missing labels     : {r.missing_labels}")
-        logger.info(f"  Orphan labels      : {r.orphan_labels}")
-        logger.info(f"  Corrupted images   : {r.corrupted_images}")
-        logger.info(f"  Invalid labels     : {r.invalid_label_files}")
-        logger.info(f"  Out-of-range boxes : {r.out_of_range_boxes}")
-        logger.info(f"  Zero-area boxes    : {r.zero_area_boxes}")
-        logger.info(f"  Duplicate images   : {r.duplicate_images}")
-        logger.info(f"  Duplicate annots   : {r.duplicate_annotations}")
-        logger.info(f"  Issues logged      : {len(r.issues)}")
-        logger.info("")
-
-        for split, stats in r.split_stats.items():
-            logger.info(
-                f"  [{split:5s}] "
-                f"images={stats['total_images']:5d}  "
-                f"pos={stats['positive_images']:5d}  "
-                f"neg={stats['negative_images']:5d}  "
-                f"boxes={stats['total_boxes']:6d}"
-            )
-
+        logger.info(f"  Total images        : {r.total_images}")
+        logger.info(f"  Positive / Negative : {r.positive_images} / {r.negative_images}")
+        logger.info(f"  Total boxes         : {r.total_boxes}")
+        logger.info(f"  Missing labels      : {r.missing_labels}")
+        logger.info(f"  Orphan labels       : {r.orphan_labels}")
+        logger.info(f"  Corrupted images    : {r.corrupted_images}")
+        logger.info(f"  Out-of-range boxes  : {r.out_of_range_boxes}")
+        logger.info(f"  Zero-area boxes     : {r.zero_area_boxes}")
+        logger.info(f"  Duplicate images    : {r.duplicate_images}")
+        logger.info(f"  Patient leakage     : {_fmt(r.patient_leakage)}")
+        logger.info(f"  Hash leakage        : {_fmt(r.hash_leakage)}")
+        logger.info(f"  dataset.yaml match  : {_fmt(r.dataset_yaml_consistency)}")
+        logger.info(f"  Annotation status   : {_fmt(r.annotation_status_distribution)}")
+        logger.info(f"  Critical errors     : {len(r.critical_errors)}")
+        for ce in r.critical_errors:
+            logger.error(f"    ❌ {ce}")
+        for w in r.warnings:
+            logger.warning(f"    ⚠️  {w}")
         logger.info("")
         logger.info(f"  STATUS: {r.status}")
         logger.info("=" * 60)
 
 
-# ---------------------------------------------------------------------------
-# CLI entry point
-# ---------------------------------------------------------------------------
-
 def _parse_args():
     parser = argparse.ArgumentParser(description="Validate YOLO-format dataset")
+    parser.add_argument("--data", type=str, default="data/processed")
+    parser.add_argument("--report-dir", type=str, default="reports")
+    parser.add_argument("--dataset-yaml", type=str, default=None)
+    parser.add_argument("--strict", action="store_true")
     parser.add_argument(
-        "--data",
-        type=str,
-        default="data/processed",
-        help="Path to processed dataset root (default: data/processed)",
-    )
-    parser.add_argument(
-        "--report-dir",
-        type=str,
-        default="reports",
-        help="Directory to save validation report (default: reports)",
-    )
-    parser.add_argument(
-        "--strict",
-        action="store_true",
-        help="Treat empty label files as errors (no negative samples allowed)",
+        "--skip-integrity-recheck", action="store_true",
+        help="Skip slow deep image decode check (only use if prepare_dataset.py "
+             "already verified these exact files' integrity in this run)."
     )
     return parser.parse_args()
+
 
 
 if __name__ == "__main__":
@@ -657,6 +521,8 @@ if __name__ == "__main__":
         processed_dir=Path(args.data),
         allow_empty_labels=not args.strict,
         report_dir=Path(args.report_dir),
+        dataset_yaml_path=Path(args.dataset_yaml) if args.dataset_yaml else None,
+        skip_integrity_recheck=args.skip_integrity_recheck,
     )
     report = validator.validate()
     exit(0 if report.status == "READY_FOR_TRAINING" else 1)
