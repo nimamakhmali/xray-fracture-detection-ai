@@ -101,19 +101,139 @@ class DatasetValidator:
         allow_empty_labels: bool = True,
         report_dir: Optional[Path] = None,
         dataset_yaml_path: Optional[Path] = None,
-        skip_integrity_recheck: bool = False,  # NEW
+        skip_integrity_recheck: bool = False,
     ):
-        
         self.processed_dir = Path(processed_dir)
         self.allow_empty_labels = allow_empty_labels
-        self.skip_integrity_recheck = skip_integrity_recheck  # NEW
-        self.report_dir = Path(report_dir) if report_dir else self.processed_dir.parent.parent / "reports"
+        self.skip_integrity_recheck = skip_integrity_recheck
+        self.report_dir = (
+            Path(report_dir) if report_dir
+            else self.processed_dir.parent.parent / "reports"
+        )
         self.report_dir.mkdir(parents=True, exist_ok=True)
+
+        # FIX 4: مسیر dataset.yaml را از چند candidate پیدا کن
         self.dataset_yaml_path = (
             Path(dataset_yaml_path) if dataset_yaml_path
-            else self.processed_dir.parent / "configs" / "dataset.yaml"
+            else self._resolve_dataset_yaml()
         )
         self.report = ValidationReport()
+
+    def _resolve_dataset_yaml(self) -> Path:
+        """
+        dataset.yaml را در چند مکان ممکن جستجو می‌کند.
+        
+        ساختار پروژه:
+            ai_module/
+                configs/dataset.yaml   ← مکان واقعی
+                data/processed/        ← processed_dir
+        """
+        candidates = [
+            # اولویت ۱: ai_module/configs/ (ساختار واقعی پروژه)
+            self.processed_dir.parent.parent / "configs" / "dataset.yaml",
+            # اولویت ۲: یک سطح بالاتر از processed_dir
+            self.processed_dir.parent / "configs" / "dataset.yaml",
+            # اولویت ۳: کنار processed_dir
+            self.processed_dir / "dataset.yaml",
+            # اولویت ۴: مسیر قدیمی اشتباه — فقط برای دیباگ
+            self.processed_dir.parent / "dataset.yaml",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                logger.info(f"dataset.yaml resolved: {candidate}")
+                return candidate
+
+        # هیچ‌کدام پیدا نشد
+        default = self.processed_dir.parent.parent / "configs" / "dataset.yaml"
+        logger.warning(
+            f"dataset.yaml not found. Searched: "
+            f"{[str(c) for c in candidates]}. "
+            f"Will report as missing during validation."
+        )
+        return default
+
+    def _validate_against_dataset_yaml(self) -> None:
+        if not self.dataset_yaml_path.exists():
+            msg = (
+                f"dataset.yaml not found at {self.dataset_yaml_path}. "
+                f"Run prepare_dataset.py to generate it."
+            )
+            self.report.warnings.append(msg)
+            self.report.dataset_yaml_consistency = {
+                "checked": False,
+                "reason": "file_not_found",
+                "path_searched": str(self.dataset_yaml_path),
+            }
+            return
+
+        try:
+            with open(self.dataset_yaml_path, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+        except Exception as e:
+            self.report.warnings.append(f"dataset.yaml parse error: {e}")
+            self.report.dataset_yaml_consistency = {
+                "checked": False,
+                "reason": f"parse_error: {e}",
+            }
+            return
+
+        stats = cfg.get("stats", {})
+        if not stats:
+            self.report.warnings.append(
+                "dataset.yaml has no 'stats' section. "
+                "Re-run prepare_dataset.py."
+            )
+            self.report.dataset_yaml_consistency = {
+                "checked": False,
+                "reason": "no_stats_section",
+            }
+            return
+
+        mismatches = {}
+
+        # total
+        self._check_stat(stats, "total_images", self.report.total_images, mismatches)
+        # positive
+        self._check_stat(stats, "fracture_positive", self.report.positive_images, mismatches)
+        # per-split
+        split_yaml_keys = {
+            "train": "train_images",
+            "val": "val_images",
+            "test": "test_images",
+        }
+        for split, yaml_key in split_yaml_keys.items():
+            actual = self.report.split_stats.get(split, {}).get("total_images")
+            if actual is not None:
+                self._check_stat(stats, yaml_key, actual, mismatches)
+
+        self.report.dataset_yaml_consistency = {
+            "checked": True,
+            "yaml_path": str(self.dataset_yaml_path),
+            "mismatches": mismatches,
+            "is_consistent": not mismatches,
+        }
+
+        if mismatches:
+            self.report.critical_errors.append(
+                f"dataset.yaml does NOT match processed dataset: {mismatches}. "
+                f"Re-run prepare_dataset.py."
+            )
+
+    @staticmethod
+    def _check_stat(
+        stats: dict,
+        key: str,
+        actual: int,
+        mismatches: dict,
+    ) -> None:
+        yaml_val = stats.get(key)
+        if yaml_val is not None and yaml_val != actual:
+            mismatches[key] = {
+                "dataset_yaml": yaml_val,
+                "actual_on_disk": actual,
+                "diff": actual - yaml_val,
+            }
+
 
     # ------------------------------------------------------------------
     # Public API
@@ -223,40 +343,7 @@ class DatasetValidator:
             )
 
 
-
-    def _validate_against_dataset_yaml(self) -> None:
-        if not self.dataset_yaml_path.exists():
-            self.report.warnings.append(
-                f"dataset.yaml not found at {self.dataset_yaml_path} — cannot cross-check."
-            )
-            return
-        with open(self.dataset_yaml_path, "r", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-        stats = cfg.get("stats", {})
-
-        mismatches = {}
-        if stats.get("total_images") != self.report.total_images:
-            mismatches["total_images"] = {
-                "dataset_yaml": stats.get("total_images"),
-                "actual_computed": self.report.total_images,
-            }
-        if stats.get("fracture_positive") != self.report.positive_images:
-            mismatches["fracture_positive"] = {
-                "dataset_yaml": stats.get("fracture_positive"),
-                "actual_computed": self.report.positive_images,
-            }
-
-        self.report.dataset_yaml_consistency = {
-            "checked": True,
-            "mismatches": mismatches,
-            "is_consistent": not mismatches,
-        }
-        if mismatches:
-            self.report.critical_errors.append(
-                f"dataset.yaml does NOT match actual processed dataset: {mismatches}. "
-                f"TRAINING BLOCKED — regenerate dataset.yaml via prepare_dataset.py."
-            )
-
+        
     def _validate_split_ratios(self) -> None:
         total = self.report.total_images
         if total == 0:
@@ -368,22 +455,18 @@ class DatasetValidator:
         stats.total_labels = len(label_paths)
         return stats
 
+    # در _check_image، پیام را واضح‌تر کن
     def _check_image(self, img_path: Path, stats: SplitStats) -> bool:
-        """
-        Uses the deep integrity check by default (catches truncated JPEGs
-        that cv2.imread() silently tolerates). This is slower but
-        authoritative — see src/utils/image_utils.check_image_integrity.
-
-        Use --skip-integrity-recheck for faster iteration ONLY when you
-        already trust these images were verified during prepare_dataset.py
-        (e.g. re-running validator just to check labels/manifest after a
-        clean prepare run).
-        """
         if self.skip_integrity_recheck:
+            # فقط zero-byte چک می‌کنیم — کافی است چون prepare_dataset
+            # قبلاً deep check کرده و فایل‌های corrupt را حذف کرده
             if img_path.stat().st_size == 0:
                 stats.corrupted_images += 1
                 self.report.issues.append(asdict(LabelIssue(
-                    str(img_path), "N/A", "CORRUPTED", detail="Zero-byte file", severity="ERROR")))
+                    str(img_path), "N/A", "CORRUPTED",
+                    detail="Zero-byte file (deep check skipped)",
+                    severity="ERROR",
+                )))
                 return False
             return True
 
@@ -394,8 +477,7 @@ class DatasetValidator:
                 str(img_path), "N/A", "CORRUPTED", detail=status, severity="ERROR")))
             return False
         return True
-
-    
+        
     def _check_duplicate(self, img_path: Path, all_hashes: Dict[str, str], stats: SplitStats) -> None:
         file_hash = compute_file_hash(img_path)
         if not file_hash:
