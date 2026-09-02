@@ -3,15 +3,12 @@ Dataset preparation pipeline for Phase 1 — REVISED after data audit.
 
 Key differences from the previous version:
   - FracAtlas raw class IDs are pre-scanned BEFORE remapping to class 0.
-    Multiple distinct raw classes => BLOCKER (unless explicitly overridden).
-  - GRAZPEDWRI-DX unknown VOC class names => BLOCKER (unless explicitly overridden).
-  - annotation_status distinguishes true negatives from samples that became
-    "negative" only because their original fracture annotation was invalid.
-  - Splitting is performed INDEPENDENTLY per source dataset (fixes silent
-    patient-leakage masking when combining FracAtlas + GRAZPEDWRI coverage).
-  - The canonical manifest (src/data/manifest.py) is the only output schema.
-  - dataset.yaml is regenerated in full from computed facts, never partially
-    patched.
+  - GRAZPEDWRI-DX unknown VOC class names => BLOCKER.
+  - annotation_status distinguishes true negatives from invalid-box negatives.
+  - Splitting is performed INDEPENDENTLY per source dataset.
+  - The canonical manifest is the only output schema.
+  - dataset.yaml is regenerated from records (post-drop), not from splits (pre-drop).
+  - DatasetWriter is instantiated and called ONCE only.
 
 Usage:
     python scripts/prepare_dataset.py --verbose
@@ -40,7 +37,6 @@ from src.utils.file_utils import compute_file_hash, find_images, save_json
 from src.utils.image_utils import get_image_dimensions, check_image_integrity
 from src.data.manifest import ManifestRecord, ManifestStore, UNAVAILABLE
 
-
 logger = get_logger(__name__)
 
 RANDOM_SEED = 42
@@ -63,19 +59,19 @@ IGNORED_CLASS_NAMES = {
     "softtissue", "SoftTissue",
     "foreignbody", "ForeignBody",
 }
-
 CLINICALLY_ADJACENT_TO_FRACTURE = {
     "pronatorsign", "PronatorSign",
     "periostealreaction", "PeriostealReaction",
     "boneanomaly", "BoneAnomaly",
 }
 
+
 class DatasetIntegrityError(Exception):
     """Raised when the pipeline detects an unresolved BLOCKER-level issue."""
 
 
 # ---------------------------------------------------------------------------
-# Path resolution (unchanged — was correct)
+# Path resolution
 # ---------------------------------------------------------------------------
 
 def resolve_project_root() -> Path:
@@ -107,15 +103,10 @@ def resolve_dataset_path(raw: str, project_root: Path, ai_root: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Annotation status helper (NEW — fixes finding #17)
+# Annotation status helper
 # ---------------------------------------------------------------------------
 
 def determine_annotation_status(num_final_boxes: int, issues: List[dict]) -> str:
-    """
-    Distinguishes a TRUE negative (no fracture object was ever annotated)
-    from a FALSE negative caused by annotation quality problems (a fracture
-    object existed but was dropped due to invalid geometry / malformed line).
-    """
     dropped_fracture = any(
         iss.get("type") in ("INVALID_BOX", "INVALID_LINE") for iss in issues
     )
@@ -125,7 +116,7 @@ def determine_annotation_status(num_final_boxes: int, issues: List[dict]) -> str
 
 
 # ---------------------------------------------------------------------------
-# YOLO annotation validator (unchanged)
+# YOLO annotation validator
 # ---------------------------------------------------------------------------
 
 class YOLOAnnotationValidator:
@@ -135,7 +126,10 @@ class YOLOAnnotationValidator:
             return False, None, f"Expected 5 fields, got {len(parts)}"
         try:
             cls = int(parts[0])
-            xc, yc, w, h = float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
+            xc, yc, w, h = (
+                float(parts[1]), float(parts[2]),
+                float(parts[3]), float(parts[4]),
+            )
         except ValueError as e:
             return False, None, f"Parse error: {e}"
         if not all(np.isfinite(v) for v in [xc, yc, w, h]):
@@ -148,7 +142,7 @@ class YOLOAnnotationValidator:
 
 
 # ---------------------------------------------------------------------------
-# Pascal VOC converter (unchanged logic, kept as-is — it was correct)
+# Pascal VOC converter
 # ---------------------------------------------------------------------------
 
 class PascalVOCConverter:
@@ -156,7 +150,12 @@ class PascalVOCConverter:
         self.fracture_names = fracture_names
         self.ignored_names = ignored_names
 
-    def convert(self, xml_path: Path, image_width: int, image_height: int) -> Tuple[List[list], List[dict]]:
+    def convert(
+        self,
+        xml_path: Path,
+        image_width: int,
+        image_height: int,
+    ) -> Tuple[List[list], List[dict]]:
         yolo_boxes, issues = [], []
         try:
             tree = ET.parse(xml_path)
@@ -186,18 +185,27 @@ class PascalVOCConverter:
                 xmax = float(bndbox.findtext("xmax", "0"))
                 ymax = float(bndbox.findtext("ymax", "0"))
             except ValueError as e:
-                issues.append({"type": "INVALID_COORDS", "class_name": name, "detail": str(e)})
+                issues.append({
+                    "type": "INVALID_COORDS",
+                    "class_name": name,
+                    "detail": str(e),
+                })
                 continue
 
             if name in self.fracture_names:
-                box = self._convert_box(xmin, ymin, xmax, ymax, image_width, image_height)
+                box = self._convert_box(
+                    xmin, ymin, xmax, ymax, image_width, image_height
+                )
                 if box is not None:
                     yolo_boxes.append([0] + box)
                 else:
                     issues.append({
-                        "type": "INVALID_BOX", "class_name": name,
-                        "detail": f"xmin={xmin},ymin={ymin},xmax={xmax},ymax={ymax},"
-                                  f"img_w={image_width},img_h={image_height}",
+                        "type": "INVALID_BOX",
+                        "class_name": name,
+                        "detail": (
+                            f"xmin={xmin},ymin={ymin},xmax={xmax},ymax={ymax},"
+                            f"img_w={image_width},img_h={image_height}"
+                        ),
                     })
             elif name in self.ignored_names:
                 issues.append({"type": "IGNORED_CLASS", "class_name": name})
@@ -207,7 +215,11 @@ class PascalVOCConverter:
         return yolo_boxes, issues
 
     @staticmethod
-    def _convert_box(xmin, ymin, xmax, ymax, img_w, img_h) -> Optional[list]:
+    def _convert_box(
+        xmin: float, ymin: float,
+        xmax: float, ymax: float,
+        img_w: int, img_h: int,
+    ) -> Optional[list]:
         if img_w <= 0 or img_h <= 0:
             return None
         xmin = max(0.0, min(xmin, img_w))
@@ -228,11 +240,16 @@ class PascalVOCConverter:
 
 
 # ---------------------------------------------------------------------------
-# FracAtlas processor — REVISED
+# FracAtlas processor
 # ---------------------------------------------------------------------------
 
 class FracAtlasProcessor:
-    def __init__(self, raw_root: Path, verbose: bool = False, allow_multiclass: bool = False):
+    def __init__(
+        self,
+        raw_root: Path,
+        verbose: bool = False,
+        allow_multiclass: bool = False,
+    ):
         self.raw_root = raw_root
         self.verbose = verbose
         self.allow_multiclass = allow_multiclass
@@ -242,7 +259,6 @@ class FracAtlasProcessor:
         self.images_fractured = self._inner / "images" / "Fractured"
         self.images_non_fractured = self._inner / "images" / "Non_fractured"
         self.csv_path = self._inner / "dataset.csv"
-
         self.validator = YOLOAnnotationValidator()
 
     def process(self) -> List[dict]:
@@ -252,9 +268,11 @@ class FracAtlasProcessor:
             return samples
 
         label_files = sorted(self.yolo_dir.glob("*.txt"))
-        logger.info(f"FracAtlas: found {len(label_files)} YOLO label files in {self.yolo_dir}")
+        logger.info(
+            f"FracAtlas: found {len(label_files)} YOLO label files in {self.yolo_dir}"
+        )
 
-        # --- PASS 1: raw class audit BEFORE any remap (fixes finding #4) ---
+        # PASS 1: raw class audit BEFORE any remap
         raw_class_counter: Dict[int, int] = defaultdict(int)
         for lp in label_files:
             try:
@@ -268,14 +286,15 @@ class FracAtlasProcessor:
             except Exception:
                 pass
 
-        logger.info(f"FracAtlas: raw class distribution BEFORE remap = {dict(raw_class_counter)}")
+        logger.info(
+            f"FracAtlas: raw class distribution BEFORE remap = {dict(raw_class_counter)}"
+        )
         if len(raw_class_counter) > 1 and not self.allow_multiclass:
             raise DatasetIntegrityError(
                 f"FracAtlas contains {len(raw_class_counter)} distinct raw class IDs "
                 f"{dict(raw_class_counter)}, but the pipeline force-remaps everything "
-                f"to class 0 (fracture). This is a BLOCKER — re-run with "
-                f"--allow-multiclass-fracatlas only after manually confirming all "
-                f"classes genuinely represent fracture."
+                f"to class 0. Re-run with --allow-multiclass-fracatlas only after "
+                f"manually confirming all classes represent fracture."
             )
 
         image_index: Dict[str, Path] = {}
@@ -283,7 +302,10 @@ class FracAtlasProcessor:
             if img_dir.exists():
                 for img_path in find_images(img_dir):
                     image_index[img_path.stem] = img_path
-        logger.info(f"FracAtlas: indexed {len(image_index)} images (fractured + non_fractured)")
+        logger.info(
+            f"FracAtlas: indexed {len(image_index)} images "
+            f"(fractured + non_fractured)"
+        )
 
         metadata = self._load_csv()
 
@@ -295,36 +317,52 @@ class FracAtlasProcessor:
             valid_lines, issues = [], []
             try:
                 raw_lines = [
-                    l for l in label_path.read_text(encoding="utf-8").strip().splitlines()
-                    if l.strip()
+                    ln for ln in
+                    label_path.read_text(encoding="utf-8").strip().splitlines()
+                    if ln.strip()
                 ]
             except Exception as e:
                 issues.append({"type": "READ_ERROR", "detail": str(e)})
-                samples.append(self._make_sample(stem, image_path, [], issues, sample_meta))
+                samples.append(
+                    self._make_sample(stem, image_path, [], issues, sample_meta)
+                )
                 continue
 
             for line in raw_lines:
                 is_valid, parsed, msg = self.validator.validate_line(line)
                 if is_valid:
-                    parsed[0] = 0  # explicit remap, now proven safe by PASS 1 check above
+                    parsed[0] = 0  # remap to class 0 (proven safe by PASS 1)
                     valid_lines.append(parsed)
                 else:
-                    issues.append({"type": "INVALID_LINE", "raw": line, "detail": msg})
+                    issues.append({
+                        "type": "INVALID_LINE",
+                        "raw": line,
+                        "detail": msg,
+                    })
                     if self.verbose:
                         logger.debug(f"FracAtlas {stem}: invalid line — {msg}")
 
-            samples.append(self._make_sample(stem, image_path, valid_lines, issues, sample_meta))
+            samples.append(
+                self._make_sample(stem, image_path, valid_lines, issues, sample_meta)
+            )
 
         valid_count = sum(1 for s in samples if s["valid"])
         pos_count = sum(1 for s in samples if s.get("fracture_positive", False))
         logger.info(
             f"FracAtlas: processed {len(samples)} samples — "
-            f"valid={valid_count}, positive={pos_count}, negative={len(samples) - pos_count}"
+            f"valid={valid_count}, positive={pos_count}, "
+            f"negative={len(samples) - pos_count}"
         )
         return samples
 
-    def _make_sample(self, stem, image_path, label_lines, issues, metadata) -> dict:
-        fracture_positive = len(label_lines) > 0
+    def _make_sample(
+        self,
+        stem: str,
+        image_path: Optional[Path],
+        label_lines: List[list],
+        issues: List[dict],
+        metadata: dict,
+    ) -> dict:
         return {
             "source": "fracatlas",
             "stem": stem,
@@ -333,9 +371,11 @@ class FracAtlasProcessor:
             "valid": image_path is not None,
             "issues": issues,
             "metadata": metadata,
-            "fracture_positive": fracture_positive,
+            "fracture_positive": len(label_lines) > 0,
             "annotation_source": "yolo_existing",
-            "annotation_status": determine_annotation_status(len(label_lines), issues),
+            "annotation_status": determine_annotation_status(
+                len(label_lines), issues
+            ),
         }
 
     def _load_csv(self) -> Dict[str, dict]:
@@ -346,11 +386,19 @@ class FracAtlasProcessor:
             with open(self.csv_path, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    key = Path(row.get("image_id", "")).stem or str(list(row.values())[0])
+                    key = (
+                        Path(row.get("image_id", "")).stem
+                        or str(list(row.values())[0])
+                    )
                     result[key] = dict(row)
             logger.info(f"FracAtlas: loaded {len(result)} CSV metadata rows")
-            grouping_candidates = {"patient_id", "patientid", "patient", "study_id", "studyid"}
-            found = [c for c in (reader.fieldnames or []) if c.lower() in grouping_candidates]
+            grouping_candidates = {
+                "patient_id", "patientid", "patient", "study_id", "studyid"
+            }
+            found = [
+                c for c in (reader.fieldnames or [])
+                if c.lower() in grouping_candidates
+            ]
             if not found:
                 logger.warning(
                     "FracAtlas: dataset.csv has NO patient/study grouping column. "
@@ -363,23 +411,26 @@ class FracAtlasProcessor:
 
 
 # ---------------------------------------------------------------------------
-# GRAZPEDWRI-DX processor — REVISED
+# GRAZPEDWRI-DX processor
 # ---------------------------------------------------------------------------
 
 class GRAZPEDWRIProcessor:
-    def __init__(self, raw_root: Path, verbose: bool = False, allow_unknown_classes: bool = False):
+    def __init__(
+        self,
+        raw_root: Path,
+        verbose: bool = False,
+        allow_unknown_classes: bool = False,
+    ):
         self.raw_root = raw_root
         self.verbose = verbose
         self.allow_unknown_classes = allow_unknown_classes
 
         self.voc_dir = raw_root / "folder_structure" / "pascalvoc"
-        self.supervisely_dir = raw_root / "folder_structure" / "supervisely" / "wrist" / "ann"
-        self.yolov5_dir = raw_root / "folder_structure" / "yolov5" / "labels"
         self.csv_path = raw_root / "dataset.csv"
-
         self.converter = PascalVOCConverter(FRACTURE_CLASS_NAMES, IGNORED_CLASS_NAMES)
 
         self._image_map: Dict[str, Path] = {}
+        self._clinically_adjacent_negatives: int = 0
         self._build_image_map()
 
     def _build_image_map(self) -> None:
@@ -400,14 +451,15 @@ class GRAZPEDWRIProcessor:
 
         metadata = self._load_csv()
         unknown_classes: Dict[str, int] = defaultdict(int)
-        clinically_adjacent_negatives = 0  # NEW
+        clinically_adjacent_negatives = 0
 
         for xml_path in xml_files:
             stem = xml_path.stem
             image_path = self._image_map.get(stem)
             sample_meta = dict(metadata.get(stem, {}))
 
-            if "patient_id" not in sample_meta or not sample_meta.get("patient_id"):
+            # patient_id: prefer CSV, fallback to filename-derived
+            if not sample_meta.get("patient_id"):
                 derived = self._extract_patient_id(stem)
                 if derived:
                     sample_meta["patient_id"] = derived
@@ -423,10 +475,11 @@ class GRAZPEDWRIProcessor:
 
             yolo_boxes, issues = self.converter.convert(xml_path, img_w, img_h)
 
-            # NEW: track clinically-adjacent-but-fracture-negative samples
+            # track clinically-adjacent-but-fracture-negative samples
             has_adjacent = any(
                 iss.get("class_name") in CLINICALLY_ADJACENT_TO_FRACTURE
-                for iss in issues if iss["type"] == "IGNORED_CLASS"
+                for iss in issues
+                if iss["type"] == "IGNORED_CLASS"
             )
             if len(yolo_boxes) == 0 and has_adjacent:
                 clinically_adjacent_negatives += 1
@@ -445,95 +498,89 @@ class GRAZPEDWRIProcessor:
                 "metadata": sample_meta,
                 "fracture_positive": len(yolo_boxes) > 0,
                 "annotation_source": "pascal_voc",
-                "annotation_status": determine_annotation_status(len(yolo_boxes), issues),
+                "annotation_status": determine_annotation_status(
+                    len(yolo_boxes), issues
+                ),
                 "width": img_w or None,
                 "height": img_h or None,
             })
 
         if unknown_classes and not self.allow_unknown_classes:
             raise DatasetIntegrityError(
-                f"GRAZPEDWRI-DX contains {len(unknown_classes)} unknown class name(s) "
-                f"not mapped to fracture nor ignored: {dict(unknown_classes)}. "
-                f"This is a BLOCKER — resolve manually or re-run with "
-                f"--allow-unknown-grz-classes to proceed treating them as ignored."
+                f"GRAZPEDWRI-DX contains {len(unknown_classes)} unknown class "
+                f"name(s) not mapped to fracture nor ignored: "
+                f"{dict(unknown_classes)}. Re-run with --allow-unknown-grz-classes "
+                f"to treat them as ignored."
             )
         elif unknown_classes:
-            logger.warning(f"GRAZPEDWRI-DX: proceeding with unknown classes IGNORED: {dict(unknown_classes)}")
+            logger.warning(
+                f"GRAZPEDWRI-DX: proceeding with unknown classes IGNORED: "
+                f"{dict(unknown_classes)}"
+            )
 
+        self._clinically_adjacent_negatives = clinically_adjacent_negatives
         if clinically_adjacent_negatives > 0:
             logger.warning(
-                f"GRAZPEDWRI-DX: {clinically_adjacent_negatives} samples are labeled "
-                f"fracture-NEGATIVE but contain a clinically fracture-adjacent finding "
-                f"(pronatorsign/periostealreaction/boneanomaly). Documented Phase-1 "
-                f"scope limitation — see 'clinical_notes' in the preparation report."
+                f"GRAZPEDWRI-DX: {clinically_adjacent_negatives} samples are "
+                f"fracture-NEGATIVE but contain a clinically fracture-adjacent "
+                f"finding. Documented Phase-1 scope limitation."
             )
-        self._clinically_adjacent_negatives = clinically_adjacent_negatives  # store for report
 
         valid_count = sum(1 for s in samples if s["valid"])
         pos_count = sum(1 for s in samples if s.get("fracture_positive", False))
         logger.info(
             f"GRAZPEDWRI-DX: processed {len(samples)} samples — "
-            f"valid={valid_count}, positive={pos_count}, negative={len(samples) - pos_count}"
+            f"valid={valid_count}, positive={pos_count}, "
+            f"negative={len(samples) - pos_count}"
         )
         return samples
-    
-    
+
     @staticmethod
     def _extract_patient_id(stem: str) -> Optional[str]:
         parts = stem.split("_")
         return parts[0] if len(parts) >= 2 else None
 
-    def _detect_csv_patient_column(self, metadata: Dict[str, dict]) -> Optional[str]:
-        for row in metadata.values():
-            for col in row.keys():
-                if col.lower() in {"patient_id", "patientid", "patient", "study_id", "studyid"}:
-                    return col
-            break
-        return None
-
     def _load_csv(self) -> Dict[str, dict]:
         result = {}
         if not self.csv_path.exists():
-            logger.warning(f"GRAZPEDWRI-DX: dataset.csv not found at {self.csv_path}")
+            logger.warning(
+                f"GRAZPEDWRI-DX: dataset.csv not found at {self.csv_path}"
+            )
             return result
         try:
             with open(self.csv_path, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     filename = (
-                        row.get("filestem", "") or row.get("filename", "")
-                        or row.get("image_id", "") or list(row.values())[0]
+                        row.get("filestem", "")
+                        or row.get("filename", "")
+                        or row.get("image_id", "")
+                        or list(row.values())[0]
                     )
                     key = Path(filename).stem if filename else ""
                     if key:
                         result[key] = dict(row)
-            logger.info(f"GRAZPEDWRI-DX: loaded {len(result)} CSV metadata rows")
+            logger.info(
+                f"GRAZPEDWRI-DX: loaded {len(result)} CSV metadata rows"
+            )
         except Exception as e:
-            logger.warning(f"GRAZPEDWRI-DX: could not load dataset.csv — {e}")
+            logger.warning(
+                f"GRAZPEDWRI-DX: could not load dataset.csv — {e}"
+            )
         return result
 
 
 # ---------------------------------------------------------------------------
-# Leakage-aware splitter — REVISED: split independently PER SOURCE DATASET
+# Leakage-aware splitter — splits INDEPENDENTLY per source dataset
 # ---------------------------------------------------------------------------
 
 class LeakageAwareSplitter:
-    """
-    CRITICAL FIX vs previous version:
-        The old implementation detected the group field (patient_id) using
-        coverage computed across ALL combined samples. Because GRAZPEDWRI-DX
-        dominates the dataset numerically and has good patient_id coverage,
-        this could mask the fact that FracAtlas has ZERO usable patient_id
-        coverage, silently treating FracAtlas as if it were leakage-safe
-        when it is not.
-
-        This version splits EACH source dataset independently, using the
-        group field only where THAT dataset has sufficient coverage, then
-        concatenates the resulting splits. This guarantees no dataset's
-        leakage protection is inherited from another dataset's metadata.
-    """
-
-    def __init__(self, train_ratio=TRAIN_RATIO, val_ratio=VAL_RATIO, seed=RANDOM_SEED):
+    def __init__(
+        self,
+        train_ratio: float = TRAIN_RATIO,
+        val_ratio: float = VAL_RATIO,
+        seed: int = RANDOM_SEED,
+    ):
         self.train_ratio = train_ratio
         self.val_ratio = val_ratio
         self.seed = seed
@@ -549,13 +596,18 @@ class LeakageAwareSplitter:
         combined: Dict[str, List[dict]] = {"train": [], "val": [], "test": []}
 
         for source, source_samples in by_source.items():
-            group_field = self._detect_group_field(source_samples)
+            group_field = self._detect_group_field(source, source_samples)
             if group_field:
-                logger.info(f"[{source}] Using GROUP-LEVEL split on '{group_field}'")
+                logger.info(
+                    f"[{source}] Using GROUP-LEVEL split on '{group_field}'"
+                )
                 self.strategy_report[source] = f"group_level:{group_field}"
                 s_splits = self._group_split(source_samples, group_field)
             else:
-                logger.info(f"[{source}] No reliable group field — STRATIFIED IMAGE-LEVEL split")
+                logger.info(
+                    f"[{source}] No reliable group field — "
+                    f"STRATIFIED IMAGE-LEVEL split"
+                )
                 self.strategy_report[source] = "image_level_stratified"
                 s_splits = self._stratified_split(source_samples)
 
@@ -565,60 +617,90 @@ class LeakageAwareSplitter:
         self._log_split_stats(combined)
         return combined
 
-    def _detect_group_field(self, samples: List[dict]) -> Optional[str]:
-        candidates = ["patient_id", "patientid", "patient", "study_id", "studyid"]
+    def _detect_group_field(
+        self, source: str, samples: List[dict]
+    ) -> Optional[str]:
+        candidates = [
+            "patient_id", "patientid", "patient", "study_id", "studyid"
+        ]
         for field in candidates:
-            values = [str(s.get("metadata", {}).get(field, "")).strip() for s in samples]
-            non_empty = [v for v in values if v and v not in {"", "nan", "None"}]
+            values = [
+                str(s.get("metadata", {}).get(field, "")).strip()
+                for s in samples
+            ]
+            non_empty = [
+                v for v in values
+                if v and v not in {"", "nan", "None", "UNAVAILABLE"}
+            ]
             coverage = len(non_empty) / len(samples) if samples else 0
             if coverage >= 0.8:
                 logger.info(
-                    f"  Group field '{field}': {len(set(non_empty))} groups, "
+                    f"  Group field '{field}': "
+                    f"{len(set(non_empty))} groups, "
                     f"{coverage:.1%} coverage → USABLE"
                 )
                 return field
             elif non_empty:
-                logger.info(f"  Group field '{field}': {coverage:.1%} coverage → too low")
+                logger.info(
+                    f"  Group field '{field}': "
+                    f"{coverage:.1%} coverage → too low, skipping"
+                )
         return None
 
-    def _group_split(self, samples: List[dict], group_field: str) -> Dict[str, List[dict]]:
+    def _group_split(
+        self, samples: List[dict], group_field: str
+    ) -> Dict[str, List[dict]]:
         group_map: Dict[str, List[dict]] = defaultdict(list)
         for s in samples:
-            gid = str(s.get("metadata", {}).get(group_field, f"_unk_{s['stem']}"))
+            gid = str(
+                s.get("metadata", {}).get(
+                    group_field, f"_unk_{s['stem']}"
+                )
+            )
             group_map[gid].append(s)
 
         positive_groups, negative_groups = [], []
         for gid, group_samples in group_map.items():
-            (positive_groups if any(s.get("fracture_positive", False) for s in group_samples)
-             else negative_groups).append(gid)
+            if any(s.get("fracture_positive", False) for s in group_samples):
+                positive_groups.append(gid)
+            else:
+                negative_groups.append(gid)
 
         random.shuffle(positive_groups)
         random.shuffle(negative_groups)
 
-        splits: Dict[str, List[dict]] = {"train": [], "val": [], "test": []}
+        splits: Dict[str, List[dict]] = {
+            "train": [], "val": [], "test": []
+        }
         for group_list in [positive_groups, negative_groups]:
             n = len(group_list)
-            n_train, n_val = int(n * self.train_ratio), int(n * self.val_ratio)
+            n_train = int(n * self.train_ratio)
+            n_val = int(n * self.val_ratio)
             for gid in group_list[:n_train]:
                 splits["train"].extend(group_map[gid])
-            for gid in group_list[n_train:n_train + n_val]:
+            for gid in group_list[n_train: n_train + n_val]:
                 splits["val"].extend(group_map[gid])
             for gid in group_list[n_train + n_val:]:
                 splits["test"].extend(group_map[gid])
         return splits
 
-    def _stratified_split(self, samples: List[dict]) -> Dict[str, List[dict]]:
+    def _stratified_split(
+        self, samples: List[dict]
+    ) -> Dict[str, List[dict]]:
         positive = [s for s in samples if s.get("fracture_positive", False)]
         negative = [s for s in samples if not s.get("fracture_positive", False)]
         random.shuffle(positive)
         random.shuffle(negative)
 
-        splits: Dict[str, List[dict]] = {"train": [], "val": [], "test": []}
+        splits: Dict[str, List[dict]] = {
+            "train": [], "val": [], "test": []
+        }
         for group in [positive, negative]:
             n = len(group)
-            n_train, n_val = int(n * self.train_ratio), int(n * self.val_ratio)
+            n_train = int(n * self.train_ratio)
+            n_val = int(n * self.val_ratio)
             splits["train"].extend(group[:n_train])
-            splits["val"].extend(group[n_train:n_train + n_val])
+            splits["val"].extend(group[n_train: n_train + n_val])
             splits["test"].extend(group[n_train + n_val:])
         return splits
 
@@ -626,15 +708,19 @@ class LeakageAwareSplitter:
     def _log_split_stats(splits: Dict[str, List[dict]]) -> None:
         total = sum(len(v) for v in splits.values())
         for split, slist in splits.items():
-            pos = sum(s.get("fracture_positive", False) for s in slist)
+            pos = sum(
+                1 for s in slist if s.get("fracture_positive", False)
+            )
             pct = len(slist) / total * 100 if total else 0
-            logger.info(f"  {split:6s}: {len(slist):6d} ({pct:5.1f}%) — pos={pos}, neg={len(slist)-pos}")
+            logger.info(
+                f"  {split:6s}: {len(slist):6d} ({pct:5.1f}%) — "
+                f"pos={pos}, neg={len(slist) - pos}"
+            )
 
 
 # ---------------------------------------------------------------------------
-# Dataset writer — REVISED: populates hash/width/height/annotation_status
+# Dataset writer — called EXACTLY ONCE
 # ---------------------------------------------------------------------------
-
 
 class DatasetWriter:
     def __init__(self, output_dir: Path, dry_run: bool = False):
@@ -642,9 +728,10 @@ class DatasetWriter:
         self.dry_run = dry_run
         self.records: List[ManifestRecord] = []
         self._name_counter: Dict[str, int] = defaultdict(int)
-        self.width_height_pairs: List[Tuple[int, int]] = []
 
-    def write(self, splits: Dict[str, List[dict]]) -> Tuple[List[ManifestRecord], List[dict]]:
+    def write(
+        self, splits: Dict[str, List[dict]]
+    ) -> Tuple[List[ManifestRecord], List[dict]]:
         if not self.dry_run:
             self._create_dirs()
 
@@ -658,7 +745,8 @@ class DatasetWriter:
             for sample in samples:
                 if not sample.get("valid", False):
                     dropped_samples.append({
-                        "stem": sample["stem"], "source": sample["source"],
+                        "stem": sample["stem"],
+                        "source": sample["source"],
                         "reason": "no_matching_image_orphan_annotation",
                     })
                     continue
@@ -666,29 +754,40 @@ class DatasetWriter:
                 img_src: Optional[Path] = sample.get("image_path")
                 if img_src is None or not img_src.exists():
                     dropped_samples.append({
-                        "stem": sample["stem"], "source": sample["source"],
+                        "stem": sample["stem"],
+                        "source": sample["source"],
                         "reason": "image_path_missing_on_disk",
                     })
                     continue
 
-                # --- NEW: deep integrity check BEFORE copying into processed/ ---
+                # deep integrity check BEFORE copying
                 is_readable, integrity_status = check_image_integrity(img_src)
                 if not is_readable:
                     dropped_samples.append({
-                        "stem": sample["stem"], "source": sample["source"],
+                        "stem": sample["stem"],
+                        "source": sample["source"],
                         "reason": f"image_integrity_failed:{integrity_status}",
                     })
                     logger.warning(
-                        f"Dropping {sample['source']}:{sample['stem']} — {integrity_status}"
+                        f"Dropping {sample['source']}:{sample['stem']} "
+                        f"— {integrity_status}"
                     )
                     continue
 
                 dims = get_image_dimensions(img_src)
-                height, width = (dims[0], dims[1]) if dims else (None, None)
+                height = dims[0] if dims else None
+                width = dims[1] if dims else None
 
-                img_hash = sample.get("image_hash") or compute_file_hash(img_src) or UNAVAILABLE
+                # reuse hash computed during deduplication if available
+                img_hash = (
+                    sample.get("image_hash")
+                    or compute_file_hash(img_src)
+                    or UNAVAILABLE
+                )
 
-                safe_name = self._safe_filename(sample["source"], img_src.stem, img_src.suffix)
+                safe_name = self._safe_filename(
+                    sample["source"], img_src.stem, img_src.suffix
+                )
                 img_dst = images_dir / safe_name
                 label_dst = labels_dir / (Path(safe_name).stem + ".txt")
 
@@ -703,40 +802,62 @@ class DatasetWriter:
                     image_path=safe_name,
                     original_filename=img_src.name,
                     image_hash=img_hash,
-                    patient_id=str(meta.get("patient_id", "")) or UNAVAILABLE,
-                    study_id=str(meta.get("study_id", meta.get("studyid", ""))) or UNAVAILABLE,
-                    fracture_positive=str(sample.get("fracture_positive", False)),
+                    patient_id=(
+                        str(meta.get("patient_id", "")).strip() or UNAVAILABLE
+                    ),
+                    study_id=(
+                        str(
+                            meta.get("study_id", meta.get("studyid", ""))
+                        ).strip() or UNAVAILABLE
+                    ),
+                    fracture_positive=str(
+                        sample.get("fracture_positive", False)
+                    ),
                     num_boxes=str(len(sample.get("label_lines", []))),
-                    annotation_source=sample.get("annotation_source", "unknown"),
-                    annotation_status=sample.get("annotation_status", "unknown"),
-                    width=str(width) if width else UNAVAILABLE,
-                    height=str(height) if height else UNAVAILABLE,
+                    annotation_source=sample.get(
+                        "annotation_source", "unknown"
+                    ),
+                    annotation_status=sample.get(
+                        "annotation_status", "unknown"
+                    ),
+                    width=str(width) if width is not None else UNAVAILABLE,
+                    height=str(height) if height is not None else UNAVAILABLE,
                     split=split,
                 ))
-                if width and height:
-                    self.width_height_pairs.append((width, height))
                 sample_id += 1
 
-        logger.info(f"DatasetWriter: {'[DRY RUN] ' if self.dry_run else ''}wrote {sample_id} samples, "
-                    f"dropped {len(dropped_samples)} invalid samples")
+        prefix = "[DRY RUN] " if self.dry_run else ""
+        logger.info(
+            f"DatasetWriter: {prefix}wrote {sample_id} samples, "
+            f"dropped {len(dropped_samples)} invalid samples"
+        )
         return self.records, dropped_samples
-    
-    
+
     def save_manifest(self, manifest_path: Path) -> None:
         if self.dry_run:
             logger.info(f"[DRY RUN] Would save manifest: {manifest_path}")
             return
         store = ManifestStore(self.records)
         store.save(manifest_path)
-        logger.info(f"Manifest saved: {manifest_path} ({len(self.records)} rows)")
+        logger.info(
+            f"Manifest saved: {manifest_path} ({len(self.records)} rows)"
+        )
 
     def _create_dirs(self) -> None:
         for split in ("train", "val", "test"):
-            (self.output_dir / split / "images").mkdir(parents=True, exist_ok=True)
-            (self.output_dir / split / "labels").mkdir(parents=True, exist_ok=True)
+            (self.output_dir / split / "images").mkdir(
+                parents=True, exist_ok=True
+            )
+            (self.output_dir / split / "labels").mkdir(
+                parents=True, exist_ok=True
+            )
 
-    def _safe_filename(self, source: str, stem: str, suffix: str) -> str:
-        prefix = {"fracatlas": "fa", "grazpedwri": "grz"}.get(source, source[:3])
+    def _safe_filename(
+        self, source: str, stem: str, suffix: str
+    ) -> str:
+        prefix = {
+            "fracatlas": "fa", "grazpedwri": "grz"
+        }.get(source, source[:3])
         base = f"{prefix}_{stem}{suffix}"
         if base not in self._name_counter:
             self._name_counter[base] = 0
@@ -750,7 +871,10 @@ class DatasetWriter:
         with open(label_path, "w", encoding="utf-8") as f:
             for box in lines:
                 cls = int(box[0])
-                xc, yc, w, h = (float(box[1]), float(box[2]), float(box[3]), float(box[4]))
+                xc = float(box[1])
+                yc = float(box[2])
+                w = float(box[3])
+                h = float(box[4])
                 f.write(f"{cls} {xc:.6f} {yc:.6f} {w:.6f} {h:.6f}\n")
 
 
@@ -760,10 +884,17 @@ class DatasetWriter:
 
 class DatasetPreparationPipeline:
     def __init__(
-        self, config_path: Path, output_dir: Path, reports_dir: Path,
-        fracatlas_root: Optional[Path] = None, grazpedwri_root: Optional[Path] = None,
-        source: Optional[str] = None, dry_run: bool = False, verbose: bool = False,
-        seed: int = RANDOM_SEED, allow_multiclass_fracatlas: bool = False,
+        self,
+        config_path: Path,
+        output_dir: Path,
+        reports_dir: Path,
+        fracatlas_root: Optional[Path] = None,
+        grazpedwri_root: Optional[Path] = None,
+        source: Optional[str] = None,
+        dry_run: bool = False,
+        verbose: bool = False,
+        seed: int = RANDOM_SEED,
+        allow_multiclass_fracatlas: bool = False,
         allow_unknown_grz_classes: bool = False,
     ):
         self.config_path = Path(config_path)
@@ -775,22 +906,39 @@ class DatasetPreparationPipeline:
         self.seed = seed
         self.allow_multiclass_fracatlas = allow_multiclass_fracatlas
         self.allow_unknown_grz_classes = allow_unknown_grz_classes
+
+        # _load_config must be defined before this line
         self.config = self._load_config()
 
         self._project_root = resolve_project_root()
         self._ai_module_root = Path(__file__).resolve().parent.parent
 
-        sources_cfg = {s["name"]: s["local_path"] for s in self.config.get("sources", [])}
+        sources_cfg = {
+            s["name"]: s["local_path"]
+            for s in self.config.get("sources", [])
+        }
 
         self.fracatlas_root = fracatlas_root or resolve_dataset_path(
-            sources_cfg.get("FracAtlas", "../fracatlas"), self._project_root, self._ai_module_root
+            sources_cfg.get("FracAtlas", "../fracatlas"),
+            self._project_root,
+            self._ai_module_root,
         )
         self.grazpedwri_root = grazpedwri_root or resolve_dataset_path(
-            sources_cfg.get("GRAZPEDWRI-DX", "../GRAZPEDWRI-DX"), self._project_root, self._ai_module_root
+            sources_cfg.get("GRAZPEDWRI-DX", "../GRAZPEDWRI-DX"),
+            self._project_root,
+            self._ai_module_root,
         )
 
-        logger.info(f"FracAtlas root : {self.fracatlas_root} (exists={self.fracatlas_root.exists()})")
-        logger.info(f"GRAZPEDWRI root: {self.grazpedwri_root} (exists={self.grazpedwri_root.exists()})")
+        logger.info(
+            f"FracAtlas root : {self.fracatlas_root} "
+            f"(exists={self.fracatlas_root.exists()})"
+        )
+        logger.info(
+            f"GRAZPEDWRI root: {self.grazpedwri_root} "
+            f"(exists={self.grazpedwri_root.exists()})"
+        )
+
+        self._grz_processor_clinically_adjacent: Optional[int] = None
 
         self.report: Dict = {
             "pipeline": "phase1_dataset_preparation_v2",
@@ -801,8 +949,14 @@ class DatasetPreparationPipeline:
             "splitting": {},
             "split_strategy_per_source": {},
             "dropped_samples": [],
+            "dropped_samples_by_reason": {},
             "reconciliation": {},
+            "clinical_notes": {},
         }
+
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
 
     def run(self) -> None:
         logger.info("=" * 60)
@@ -817,7 +971,9 @@ class DatasetPreparationPipeline:
             self.report["sources"]["fracatlas"] = {
                 "total": len(fa_samples),
                 "valid": sum(s["valid"] for s in fa_samples),
-                "positive": sum(s.get("fracture_positive", False) for s in fa_samples),
+                "positive": sum(
+                    1 for s in fa_samples if s.get("fracture_positive", False)
+                ),
             }
 
         if self.source in (None, "grazpedwri"):
@@ -826,7 +982,9 @@ class DatasetPreparationPipeline:
             self.report["sources"]["grazpedwri"] = {
                 "total": len(grz_samples),
                 "valid": sum(s["valid"] for s in grz_samples),
-                "positive": sum(s.get("fracture_positive", False) for s in grz_samples),
+                "positive": sum(
+                    1 for s in grz_samples if s.get("fracture_positive", False)
+                ),
             }
 
         total_before_dedup = len(all_samples)
@@ -837,7 +995,10 @@ class DatasetPreparationPipeline:
 
         valid_samples = [s for s in all_samples if s.get("valid", False)]
         invalid_samples = [s for s in all_samples if not s.get("valid", False)]
-        logger.info(f"Valid samples: {len(valid_samples)} | Invalid (orphan): {len(invalid_samples)}")
+        logger.info(
+            f"Valid samples: {len(valid_samples)} | "
+            f"Invalid (orphan): {len(invalid_samples)}"
+        )
 
         splitter = LeakageAwareSplitter(seed=self.seed)
         splits = splitter.split(valid_samples)
@@ -845,72 +1006,86 @@ class DatasetPreparationPipeline:
         self.report["splitting"] = {
             split: {
                 "count": len(sl),
-                "positive": sum(s.get("fracture_positive", False) for s in sl),
-                "negative": sum(not s.get("fracture_positive", False) for s in sl),
+                "positive": sum(
+                    1 for s in sl if s.get("fracture_positive", False)
+                ),
+                "negative": sum(
+                    1 for s in sl if not s.get("fracture_positive", False)
+                ),
             }
             for split, sl in splits.items()
         }
 
+        # FIX: DatasetWriter instantiated and called EXACTLY ONCE
         writer = DatasetWriter(self.output_dir, dry_run=self.dry_run)
         records, dropped = writer.write(splits)
-        self.report["dropped_samples"] = dropped
 
-        writer.save_manifest(self.output_dir / "manifest.csv")
+        # clinical notes — attribute set by _run_grazpedwri
+        self.report["clinical_notes"] = {
+            "grazpedwri_clinically_adjacent_negatives": (
+                self._grz_processor_clinically_adjacent
+            ),
+        }
 
-        # --- Reconciliation log: makes future inconsistencies traceable ---
-
-        writer = DatasetWriter(self.output_dir, dry_run=self.dry_run)
-        records, dropped = writer.write(splits)
-        self.report["dropped_samples"] = dropped
-
-        # NEW: breakdown of drop reasons for transparency
+        # breakdown of drop reasons
         drop_reason_counts: Dict[str, int] = defaultdict(int)
         for d in dropped:
-            reason_key = d["reason"].split(":")[0]  # group "image_integrity_failed:xyz" together
+            reason_key = d["reason"].split(":")[0]
             drop_reason_counts[reason_key] += 1
+
+        self.report["dropped_samples"] = dropped
         self.report["dropped_samples_by_reason"] = dict(drop_reason_counts)
 
         writer.save_manifest(self.output_dir / "manifest.csv")
 
-        # NEW: clinical scope notes in the report
-        self.report["clinical_notes"] = {
-            "grazpedwri_clinically_adjacent_negatives": getattr(
-                self, "_grz_processor_clinically_adjacent", None
-            ),
-        }
-
         if not self.dry_run:
-            self._write_dataset_yaml(splits, records)
+            # FIX: pass records (post-drop) not splits (pre-drop)
+            self._write_dataset_yaml(records, dropped)
             self.reports_dir.mkdir(parents=True, exist_ok=True)
-            save_json(self.report, self.reports_dir / "dataset_preparation_report.json")
+            save_json(
+                self.report,
+                self.reports_dir / "dataset_preparation_report.json",
+            )
 
-        self._print_final_summary(splits, records)
+        self._print_final_summary(records)
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
 
     def _run_fracatlas(self) -> List[dict]:
         if not self.fracatlas_root.exists():
-            logger.error(f"FracAtlas root not found: {self.fracatlas_root}")
+            logger.error(
+                f"FracAtlas root not found: {self.fracatlas_root}"
+            )
             return []
         return FracAtlasProcessor(
-            self.fracatlas_root, verbose=self.verbose,
+            self.fracatlas_root,
+            verbose=self.verbose,
             allow_multiclass=self.allow_multiclass_fracatlas,
         ).process()
 
     def _run_grazpedwri(self) -> List[dict]:
         if not self.grazpedwri_root.exists():
-            logger.error(f"GRAZPEDWRI root not found: {self.grazpedwri_root}")
+            logger.error(
+                f"GRAZPEDWRI root not found: {self.grazpedwri_root}"
+            )
             return []
         processor = GRAZPEDWRIProcessor(
-            self.grazpedwri_root, verbose=self.verbose,
+            self.grazpedwri_root,
+            verbose=self.verbose,
             allow_unknown_classes=self.allow_unknown_grz_classes,
         )
         samples = processor.process()
-        self._grz_processor_clinically_adjacent = getattr(
-            processor, "_clinically_adjacent_negatives", None
+        # store for clinical_notes report
+        self._grz_processor_clinically_adjacent = (
+            processor._clinically_adjacent_negatives
         )
         return samples
-    
 
-    def _deduplicate(self, samples: List[dict]) -> Tuple[List[dict], dict]:
+    def _deduplicate(
+        self, samples: List[dict]
+    ) -> Tuple[List[dict], dict]:
         seen: Dict[str, dict] = {}
         unique, duplicates = [], []
 
@@ -924,11 +1099,13 @@ class DatasetPreparationPipeline:
                 unique.append(s)
                 continue
 
-            s["image_hash"] = file_hash  # store for manifest reuse (fixes finding #11)
+            # store hash in sample so DatasetWriter reuses it (no second hash)
+            s["image_hash"] = file_hash
 
             if file_hash in seen:
                 duplicates.append({
-                    "stem": s["stem"], "source": s["source"],
+                    "stem": s["stem"],
+                    "source": s["source"],
                     "duplicate_of": seen[file_hash]["ref"],
                     "was_positive": s.get("fracture_positive", False),
                     "kept_sample_was_positive": seen[file_hash]["positive"],
@@ -940,51 +1117,97 @@ class DatasetPreparationPipeline:
                 }
                 unique.append(s)
 
-        logger.info(f"Deduplication: {len(samples)} → {len(unique)} ({len(duplicates)} removed)")
+        logger.info(
+            f"Deduplication: {len(samples)} → {len(unique)} "
+            f"({len(duplicates)} removed)"
+        )
         return unique, {
             "total_before": len(samples),
             "total_after": len(unique),
             "duplicates_removed": len(duplicates),
-            "duplicates_that_were_positive": sum(1 for d in duplicates if d["was_positive"]),
+            "duplicates_that_were_positive": sum(
+                1 for d in duplicates if d["was_positive"]
+            ),
             "duplicate_list": duplicates,
         }
 
-    def _write_dataset_yaml(self, splits: Dict[str, List[dict]], records: List[ManifestRecord]) -> None:
+    def _write_dataset_yaml(
+        self,
+        records: List[ManifestRecord],
+        dropped: List[dict],
+    ) -> None:
         """
-        Fully regenerates dataset.yaml from computed facts.
-        Does NOT partially patch a pre-existing 'stats' block (fixes finding #10).
+        Regenerates dataset.yaml from records (post-drop actual counts).
+
+        IMPORTANT: split counts come from records, NOT from splits dict.
+        splits contains pre-drop counts; records reflects what was
+        actually written to disk after integrity filtering.
         """
         total = len(records)
-        total_pos = sum(r.fracture_positive == "True" for r in records)
+        total_pos = sum(1 for r in records if r.fracture_positive == "True")
 
-        widths = [int(r.width) for r in records if r.width not in ("", UNAVAILABLE)]
-        heights = [int(r.height) for r in records if r.height not in ("", UNAVAILABLE)]
-        boxes = [int(r.num_boxes) for r in records if r.num_boxes.isdigit()]
+        split_counts: Dict[str, int] = {"train": 0, "val": 0, "test": 0}
+        by_dataset: Dict[str, int] = defaultdict(int)
+        status_dist: Dict[str, int] = defaultdict(int)
+        widths: List[int] = []
+        heights: List[int] = []
+        boxes: List[int] = []
 
-        by_dataset = defaultdict(int)
         for r in records:
+            split_counts[r.split] = split_counts.get(r.split, 0) + 1
             by_dataset[r.dataset] += 1
-
-        status_dist = defaultdict(int)
-        for r in records:
             status_dist[r.annotation_status] += 1
+            if r.width not in ("", UNAVAILABLE):
+                try:
+                    widths.append(int(r.width))
+                except ValueError:
+                    pass
+            if r.height not in ("", UNAVAILABLE):
+                try:
+                    heights.append(int(r.height))
+                except ValueError:
+                    pass
+            if r.num_boxes.isdigit():
+                boxes.append(int(r.num_boxes))
 
-        cfg = self._load_config()  # reload to preserve non-stats fields (sources, image, preprocessing)
+        # build drop reason summary
+        drop_reasons: Dict[str, int] = defaultdict(int)
+        for d in dropped:
+            drop_reasons[d["reason"].split(":")[0]] += 1
+
+        logger.info(
+            f"dataset.yaml stats: total={total} "
+            f"train={split_counts['train']} "
+            f"val={split_counts['val']} "
+            f"test={split_counts['test']} "
+            f"dropped={len(dropped)}"
+        )
+
+        cfg = self._load_config()
         cfg["stats"] = {
             "total_images": total,
-            "train_images": len(splits.get("train", [])),
-            "val_images": len(splits.get("val", [])),
-            "test_images": len(splits.get("test", [])),
+            "train_images": split_counts["train"],
+            "val_images": split_counts["val"],
+            "test_images": split_counts["test"],
             "fracture_positive": total_pos,
             "fracture_negative": total - total_pos,
             "by_dataset": dict(by_dataset),
             "annotation_status_distribution": dict(status_dist),
-            "avg_image_width": round(sum(widths) / len(widths), 1) if widths else None,
-            "avg_image_height": round(sum(heights) / len(heights), 1) if heights else None,
-            "avg_annotations_per_image": round(sum(boxes) / total, 3) if total else None,
+            "avg_image_width": (
+                round(sum(widths) / len(widths), 1) if widths else None
+            ),
+            "avg_image_height": (
+                round(sum(heights) / len(heights), 1) if heights else None
+            ),
+            "avg_annotations_per_image": (
+                round(sum(boxes) / total, 3) if total else None
+            ),
             "generated_by": "scripts/prepare_dataset.py (v2)",
             "random_seed": self.seed,
+            "dropped_total": len(dropped),
+            "dropped_by_reason": dict(drop_reasons),
         }
+
         with open(self.config_path, "w", encoding="utf-8") as f:
             yaml.dump(cfg, f, allow_unicode=True, sort_keys=False)
         logger.info(f"dataset.yaml fully regenerated: {self.config_path}")
@@ -995,24 +1218,35 @@ class DatasetPreparationPipeline:
         with open(self.config_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
 
-    def _print_final_summary(self, splits: Dict[str, List[dict]], records: List[ManifestRecord]) -> None:
+    def _print_final_summary(self, records: List[ManifestRecord]) -> None:
         logger.info("")
         logger.info("=" * 60)
         logger.info("PIPELINE COMPLETE")
         logger.info(f"  Manifest rows : {len(records)}")
         logger.info(f"  Output dir    : {self.output_dir}")
-        logger.info(f"  Split strategy per source: {self.report.get('split_strategy_per_source')}")
+        logger.info(
+            f"  Split strategy per source: "
+            f"{self.report.get('split_strategy_per_source')}"
+        )
         logger.info("=" * 60)
 
 
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Phase 1 — Dataset preparation (audit-hardened)")
+    p = argparse.ArgumentParser(
+        description="Phase 1 — Dataset preparation (audit-hardened)"
+    )
     p.add_argument("--config", default="configs/dataset.yaml")
     p.add_argument("--output", default="data/processed")
     p.add_argument("--reports", default="reports")
     p.add_argument("--fracatlas", default=None)
     p.add_argument("--grazpedwri", default=None)
-    p.add_argument("--source", default=None, choices=["fracatlas", "grazpedwri"])
+    p.add_argument(
+        "--source", default=None, choices=["fracatlas", "grazpedwri"]
+    )
     p.add_argument("--seed", type=int, default=RANDOM_SEED)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--verbose", action="store_true")
@@ -1025,12 +1259,18 @@ def main() -> None:
     args = _parse_args()
     try:
         DatasetPreparationPipeline(
-            config_path=Path(args.config), output_dir=Path(args.output),
+            config_path=Path(args.config),
+            output_dir=Path(args.output),
             reports_dir=Path(args.reports),
             fracatlas_root=Path(args.fracatlas) if args.fracatlas else None,
-            grazpedwri_root=Path(args.grazpedwri) if args.grazpedwri else None,
-            source=args.source, dry_run=args.dry_run, verbose=args.verbose,
-            seed=args.seed, allow_multiclass_fracatlas=args.allow_multiclass_fracatlas,
+            grazpedwri_root=(
+                Path(args.grazpedwri) if args.grazpedwri else None
+            ),
+            source=args.source,
+            dry_run=args.dry_run,
+            verbose=args.verbose,
+            seed=args.seed,
+            allow_multiclass_fracatlas=args.allow_multiclass_fracatlas,
             allow_unknown_grz_classes=args.allow_unknown_grz_classes,
         ).run()
     except DatasetIntegrityError as e:
