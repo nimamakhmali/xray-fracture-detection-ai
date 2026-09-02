@@ -51,12 +51,23 @@ preprocessing:
   - 0.224
   - 0.225
 stats:
-  total_images: 24395
-  train_images: 16960
-  val_images: 3707
-  test_images: 3728
+  total_images: 24337
+  train_images: 16983
+  val_images: 3686
+  test_images: 3668
   fracture_positive: 14263
-  fracture_negative: 10132
-  avg_image_width: 0
-  avg_image_height: 0
-  avg_annotations_per_image: 0
+  fracture_negative: 10074
+  by_dataset:
+    fracatlas: 4010
+    grazpedwri: 20327
+  annotation_status_distribution:
+    positive_clean: 14263
+    negative_clean: 10074
+  avg_image_width: 562.1
+  avg_image_height: 947.2
+  avg_annotations_per_image: 0.781
+  generated_by: scripts/prepare_dataset.py (v2)
+  random_seed: 42
+  dropped_total: 58
+  dropped_by_reason:
+    image_integrity_failed: 58

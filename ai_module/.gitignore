@@ -84,3 +84,6 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+
+*yolo
+logs/
