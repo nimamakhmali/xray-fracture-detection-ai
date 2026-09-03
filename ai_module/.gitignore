@@ -97,14 +97,12 @@ data/
 
 # Dataset file types
 *.xml
-*.txt
 *.png
 *.json
 
 *.xml
 *.png
 *.json
-*.txt
 
 # Raw datasets
 data/raw/
@@ -114,6 +112,6 @@ data/processed/
 
 # Dataset artifacts
 data/**/*.xml
-data/**/*.txt
+# data/**/*.txt
 data/**/*.png
 data/**/*.json
