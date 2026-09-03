@@ -664,3 +664,107 @@ class FractureDetectionEvaluator:
             f"  Inference : {c.inference_time_ms_mean:.1f} ms/image (mean)"
         )
         logger.info("=" * 60)
+        
+        
+    
+    def analyze_thresholds(
+        self,
+        split: str = "val",
+        thresholds: Optional[List[float]] = None,
+    ) -> dict:
+        """
+        Evaluate image-level metrics across confidence thresholds.
+        ONLY use validation set for threshold selection.
+
+        Returns a dict suitable for saving as threshold_analysis.json.
+        """
+        if split == "test":
+            raise ValueError(
+                "Threshold analysis must NOT be run on the test set. "
+                "Use split='val' to select threshold, then freeze it."
+            )
+
+        if thresholds is None:
+            thresholds = [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50, 0.60, 0.70]
+
+        from ultralytics import YOLO
+        model = YOLO(str(self.weights))
+        records = self._manifest.by_split(split)
+
+        rows = []
+        best_f1 = -1.0
+        best_threshold = 0.25
+
+        for thresh in thresholds:
+            tp = fp = fn = tn = 0
+            for record in records:
+                img_path = (
+                    self._processed_dir / split / "images" / record.image_path
+                )
+                if not img_path.exists():
+                    continue
+                is_positive = record.fracture_positive == "True"
+                results = model.predict(
+                    str(img_path),
+                    conf=thresh,
+                    iou=self.iou,
+                    device=self.device,
+                    verbose=False,
+                )
+                has_pred = (
+                    results and results[0].boxes is not None
+                    and len(results[0].boxes) > 0
+                )
+                if is_positive and has_pred:
+                    tp += 1
+                elif not is_positive and has_pred:
+                    fp += 1
+                elif is_positive and not has_pred:
+                    fn += 1
+                else:
+                    tn += 1
+
+            prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            rec = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            f1 = (
+                2 * prec * rec / (prec + rec)
+                if (prec + rec) > 0 else 0.0
+            )
+            spec = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+
+            row = {
+                "threshold": thresh,
+                "precision": round(prec, 4),
+                "recall": round(rec, 4),
+                "f1": round(f1, 4),
+                "specificity": round(spec, 4),
+                "tp": tp, "fp": fp, "fn": fn, "tn": tn,
+            }
+            rows.append(row)
+            logger.info(
+                f"  thresh={thresh:.2f}: "
+                f"P={prec:.3f} R={rec:.3f} F1={f1:.3f} spec={spec:.3f}"
+            )
+
+            if f1 > best_f1:
+                best_f1 = f1
+                best_threshold = thresh
+
+        result = {
+            "split": split,
+            "note": (
+                "Threshold selected on validation set only. "
+                "Use selected_threshold for final test evaluation."
+            ),
+            "selected_threshold": best_threshold,
+            "selected_by": "max_f1_on_val",
+            "rows": rows,
+        }
+
+        report_path = self.reports_dir / "threshold_analysis.json"
+        save_json(result, report_path)
+        logger.info(
+            f"Threshold analysis complete. "
+            f"Best threshold={best_threshold} (F1={best_f1:.4f})"
+        )
+        return result        
