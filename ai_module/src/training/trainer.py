@@ -1,28 +1,15 @@
 """
 src/training/trainer.py
-
-Wrapper around Ultralytics YOLOv8 training API for the fracture
-detection project.
-
-Design decisions:
-- Uses Ultralytics high-level API (not a custom PyTorch loop).
-  Reason: Ultralytics handles augmentation correctly (train-only),
-  device management, checkpointing, and early stopping internally.
-  A custom loop adds complexity with no benefit for YOLOv8 baseline.
-- Augmentation during training is handled by Ultralytics internally
-  via hyperparameters. The albumentations module in src/data/ is
-  reserved for the inference preprocessing layer (Phase 3+).
-- Training is BLOCKED if validation_report.json indicates dataset
-  is not ready.
-- All experiment metadata is saved to reports/training/.
-- MLflow logging is optional (fails gracefully if MLflow unavailable).
 """
 from __future__ import annotations
 
+import csv as csv_module
 import json
 import os
 import platform
+import shutil
 import sys
+import tempfile
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -38,12 +25,9 @@ from src.utils.file_utils import save_json
 
 logger = get_logger(__name__)
 
-# ── constants ────────────────────────────────────────────────────────────────
 VALIDATION_REPORT_READY_STATUS = "READY_FOR_TRAINING"
 DATASET_VERSION = "frozen_v1"
 
-
-# ── experiment metadata ───────────────────────────────────────────────────────
 
 @dataclass
 class ExperimentConfig:
@@ -70,7 +54,6 @@ class ExperimentConfig:
     resume: bool
     use_custom_augmentation: bool
     augmentation_probability: float
-    # filled after training
     best_epoch: int = -1
     best_map50: float = -1.0
     training_duration_seconds: float = -1.0
@@ -95,16 +78,7 @@ class TrainingResult:
     config: ExperimentConfig
 
 
-# ── trainer ───────────────────────────────────────────────────────────────────
-
 class FractureDetectionTrainer:
-    """
-    Manages a single YOLOv8 training experiment.
-
-    Usage:
-        trainer = FractureDetectionTrainer(config_path, model_config_path)
-        result  = trainer.train()
-    """
 
     def __init__(
         self,
@@ -113,7 +87,6 @@ class FractureDetectionTrainer:
         validation_report: Optional[Path] = None,
         output_dir: Optional[Path] = None,
         reports_dir: Optional[Path] = None,
-        # overrides (CLI takes priority over model_config.yaml)
         epochs: Optional[int] = None,
         batch_size: Optional[int] = None,
         image_size: Optional[int] = None,
@@ -131,7 +104,6 @@ class FractureDetectionTrainer:
         )
         self.resume = resume
 
-        # resolve project root (ai_module/)
         self._root = Path(__file__).resolve().parent.parent.parent
         self._reports_dir = (
             Path(reports_dir).resolve() if reports_dir
@@ -142,13 +114,10 @@ class FractureDetectionTrainer:
             else self._root / "runs" / "detect"
         )
 
-        # load configs
         self._model_cfg = self._load_yaml(self.model_config_yaml)
         self._dataset_cfg = self._load_yaml(self.dataset_yaml)
 
-        # build experiment config (CLI overrides model_config.yaml)
         train_cfg = self._model_cfg.get("training", {})
-        inf_cfg = self._model_cfg.get("inference", {})
         model_cfg = self._model_cfg.get("model", {})
 
         _seed = seed if seed is not None else train_cfg.get("seed", 42)
@@ -156,17 +125,18 @@ class FractureDetectionTrainer:
         _batch = batch_size if batch_size is not None else train_cfg.get("batch_size", 16)
         _imgsz = image_size if image_size is not None else train_cfg.get("image_size", 640)
         _device = device if device is not None else train_cfg.get("device", "auto")
-        _workers = workers if workers is not None else 8
+        _workers = workers if workers is not None else train_cfg.get("workers", 8)
         _weights = (
             pretrained_weights
             or model_cfg.get("pretrained_weights", "yolov8n.pt")
         )
-        _exp_name = experiment_name or f"baseline_{model_cfg.get('architecture', 'yolov8n')}"
 
         import datetime
-        exp_id = (
-            f"{_exp_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        _exp_name = (
+            experiment_name
+            or f"baseline_{model_cfg.get('architecture', 'yolov8n')}"
         )
+        exp_id = f"{_exp_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         self.cfg = ExperimentConfig(
             experiment_id=exp_id,
@@ -198,16 +168,15 @@ class FractureDetectionTrainer:
     # ── public ───────────────────────────────────────────────────────────────
 
     def train(self) -> TrainingResult:
-        """Run training. Returns TrainingResult with all artifact paths."""
-
         self._pre_flight_checks()
         self._setup_seed()
         self._log_experiment_header()
 
         self._reports_dir.mkdir(parents=True, exist_ok=True)
 
-        # save config BEFORE training starts (so partial runs are traceable)
-        meta_path = self._reports_dir / f"{self.cfg.experiment_id}_config.json"
+        meta_path = (
+            self._reports_dir / f"{self.cfg.experiment_id}_config.json"
+        )
         save_json(asdict(self.cfg), meta_path)
         logger.info(f"Experiment config saved: {meta_path}")
 
@@ -232,7 +201,6 @@ class FractureDetectionTrainer:
         self.cfg.training_duration_seconds = round(duration, 1)
         self.cfg.status = "completed"
 
-        # extract best metrics from Ultralytics results
         self._extract_best_metrics(result)
         self._save_final_metadata()
         self._copy_best_to_production()
@@ -241,17 +209,14 @@ class FractureDetectionTrainer:
         self._log_training_summary(training_result)
         return training_result
 
-    # ── private ──────────────────────────────────────────────────────────────
+    # ── private ───────────────────────────────────────────────────────────────
 
     def _pre_flight_checks(self) -> None:
-        """Block training if any prerequisite fails."""
         errors = []
 
-        # 1. dataset.yaml exists
         if not self.dataset_yaml.exists():
             errors.append(f"dataset.yaml not found: {self.dataset_yaml}")
 
-        # 2. validation report gate
         if self.validation_report:
             if not self.validation_report.exists():
                 errors.append(
@@ -271,18 +236,16 @@ class FractureDetectionTrainer:
                         )
                     else:
                         logger.info(
-                            f"Dataset validation gate: PASS "
-                            f"(status={status})"
+                            f"Dataset validation gate: PASS (status={status})"
                         )
                 except Exception as e:
                     errors.append(f"Cannot read validation report: {e}")
         else:
             logger.warning(
                 "No validation report path provided — skipping dataset "
-                "status gate. This is acceptable only for smoke tests."
+                "status gate. Acceptable only for smoke tests."
             )
 
-        # 3. Ultralytics importable
         try:
             from ultralytics import YOLO  # noqa: F401
         except ImportError:
@@ -291,22 +254,20 @@ class FractureDetectionTrainer:
                 "Run: pip install ultralytics>=8.0.0"
             )
 
-        # 4. dataset stats sanity
         stats = self._dataset_cfg.get("stats", {})
         if stats:
             total = stats.get("total_images", 0)
             if total < 100:
                 errors.append(
                     f"dataset.yaml reports only {total} images — "
-                    f"suspiciously low. Verify dataset preparation."
+                    f"suspiciously low."
                 )
 
         if errors:
             for err in errors:
                 logger.error(f"PRE-FLIGHT FAIL: {err}")
             raise RuntimeError(
-                f"Training blocked — {len(errors)} pre-flight check(s) failed. "
-                f"See errors above."
+                f"Training blocked — {len(errors)} pre-flight check(s) failed."
             )
 
         logger.info("All pre-flight checks passed.")
@@ -319,137 +280,114 @@ class FractureDetectionTrainer:
         torch.manual_seed(self.cfg.seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(self.cfg.seed)
-        # note: full determinism is not guaranteed across GPUs/platforms
         logger.info(f"Random seed set: {self.cfg.seed}")
 
-        """
-        Core training call via Ultralytics API.
+    def _run_ultralytics_training(self):
+        from ultralytics import YOLO
 
-        Ultralytics YOLO.train() returns a Results object.
-        All augmentation is handled internally by Ultralytics —
-        validation/test splits never receive augmentation.
-        """
+        weights = self.cfg.pretrained_weights
+        if not Path(weights).exists():
+            logger.info(
+                f"Weights '{weights}' not found locally — "
+                f"Ultralytics will download from hub."
+            )
 
-# در src/training/trainer.py — متد _run_ultralytics_training را اینطور تغییر بده:
+        model = YOLO(weights)
+        logger.info(f"Model loaded: {weights}")
 
-def _run_ultralytics_training(self):
-    from ultralytics import YOLO
+        device = self._resolve_device(self.cfg.device)
+        logger.info(f"Training device: {device}")
 
-    weights = self.cfg.pretrained_weights
-    if not Path(weights).exists():
-        logger.info(
-            f"Weights '{weights}' not found locally — "
-            f"Ultralytics will download from hub."
+        resolved_yaml = self._resolve_dataset_yaml_for_ultralytics()
+
+        train_kwargs = dict(
+            data=str(resolved_yaml),
+            epochs=self.cfg.epochs,
+            batch=self.cfg.batch_size,
+            imgsz=self.cfg.image_size,
+            optimizer=self.cfg.optimizer,
+            lr0=self.cfg.learning_rate,
+            weight_decay=self.cfg.weight_decay,
+            momentum=self.cfg.momentum,
+            device=device,
+            workers=self.cfg.workers,
+            seed=self.cfg.seed,
+            patience=self.cfg.early_stopping_patience,
+            project=str(self._output_dir),
+            name=self.cfg.experiment_id,
+            exist_ok=self.resume,
+            resume=self.resume,
+            plots=True,
+            save=True,
+            save_period=self._model_cfg.get("training", {}).get(
+                "save_period", 10
+            ),
+            deterministic=False,
+            verbose=True,
         )
 
-    model = YOLO(weights)
-    logger.info(
-        f"Model loaded: {weights} | "
-        f"Architecture: {self.cfg.model_architecture}"
-    )
+        logger.info(f"Starting Ultralytics training...")
+        result = model.train(**train_kwargs)
+        return result
 
-    device = self._resolve_device(self.cfg.device)
-    logger.info(f"Training device: {device}")
+    def _resolve_dataset_yaml_for_ultralytics(self) -> Path:
+        """
+        Write a temp yaml with absolute 'path' so Ultralytics resolves
+        train/val/test correctly regardless of cwd.
+        Original dataset.yaml is never modified.
+        """
+        cfg = dict(self._dataset_cfg)
 
-    # ── FIX: resolve dataset.yaml path برای Ultralytics ──────────────
-    # Ultralytics path را نسبت به cwd می‌خواند نه نسبت به yaml file.
-    # یک temp yaml با absolute path می‌سازیم تا yaml اصلی تغییر نکند.
-    resolved_yaml = self._resolve_dataset_yaml_for_ultralytics()
-    # ─────────────────────────────────────────────────────────────────
+        raw_path = cfg.get("path", "data/processed")
+        if not Path(raw_path).is_absolute():
+            abs_path = (
+                self.dataset_yaml.parent.parent / raw_path
+            ).resolve()
+        else:
+            abs_path = Path(raw_path)
 
-    train_kwargs = dict(
-        data=str(resolved_yaml),        # ← از resolved_yaml استفاده کن
-        epochs=self.cfg.epochs,
-        batch=self.cfg.batch_size,
-        imgsz=self.cfg.image_size,
-        optimizer=self.cfg.optimizer,
-        lr0=self.cfg.learning_rate,
-        weight_decay=self.cfg.weight_decay,
-        momentum=self.cfg.momentum,
-        device=device,
-        workers=self.cfg.workers,
-        seed=self.cfg.seed,
-        patience=self.cfg.early_stopping_patience,
-        project=str(self._output_dir),
-        name=self.cfg.experiment_id,
-        exist_ok=self.resume,
-        resume=self.resume,
-        plots=True,
-        save=True,
-        save_period=self._model_cfg.get("training", {}).get("save_period", 10),
-        deterministic=False,
-        verbose=True,
-    )
+        if not abs_path.exists():
+            raise RuntimeError(
+                f"Dataset path does not exist: {abs_path}. "
+                f"Run prepare_dataset.py first."
+            )
 
-    logger.info(f"Ultralytics train kwargs: {train_kwargs}")
-    result = model.train(**train_kwargs)
-    return result
+        cfg["path"] = str(abs_path)
 
+        tmp_yaml = self.dataset_yaml.parent / "_ultralytics_resolved.yaml"
+        with open(tmp_yaml, "w", encoding="utf-8") as f:
+            yaml.dump(cfg, f, allow_unicode=True, sort_keys=False)
 
-def _resolve_dataset_yaml_for_ultralytics(self) -> Path:
-    """
-    Ultralytics resolves 'path' in dataset.yaml relative to cwd,
-    not relative to the yaml file location.
-
-    To avoid this ambiguity, we write a temporary yaml with
-    'path' as an absolute path. The original dataset.yaml is
-    never modified.
-    """
-    import tempfile
-    import shutil
-
-    cfg = dict(self._dataset_cfg)  # shallow copy
-
-    # resolve 'path' to absolute
-    raw_path = cfg.get("path", "data/processed")
-    if not Path(raw_path).is_absolute():
-        # relative to ai_module root (where dataset.yaml lives)
-        abs_path = (self.dataset_yaml.parent.parent / raw_path).resolve()
-    else:
-        abs_path = Path(raw_path)
-
-    if not abs_path.exists():
-        raise RuntimeError(
-            f"Dataset path does not exist: {abs_path}. "
-            f"Run prepare_dataset.py first."
-        )
-
-    cfg["path"] = str(abs_path)
-
-    # write to temp file in same directory as original yaml
-    # (so relative imports in yaml still work if any)
-    tmp_yaml = self.dataset_yaml.parent / "_ultralytics_resolved.yaml"
-    with open(tmp_yaml, "w", encoding="utf-8") as f:
-        yaml.dump(cfg, f, allow_unicode=True, sort_keys=False)
-
-    logger.info(f"Resolved dataset yaml written: {tmp_yaml}")
-    logger.info(f"  path (absolute): {abs_path}")
-    return tmp_yaml
-
+        logger.info(f"Resolved dataset yaml: {tmp_yaml}")
+        logger.info(f"  Absolute path: {abs_path}")
+        return tmp_yaml
 
     def _extract_best_metrics(self, result) -> None:
-        """Extract best mAP50 and best epoch from Ultralytics results."""
         try:
-            # Ultralytics stores best results in the trainer
             if hasattr(result, "results_dict"):
                 rd = result.results_dict
                 self.cfg.best_map50 = float(
                     rd.get("metrics/mAP50(B)", -1.0)
                 )
-            # try to read from results.csv
-            exp_dir = self._output_dir / self.cfg.experiment_id
-            csv_path = exp_dir / "results.csv"
-            if csv_path.exists():
-                import csv as csv_module
+        except Exception:
+            pass
+
+        exp_dir = self._output_dir / self.cfg.experiment_id
+        csv_path = exp_dir / "results.csv"
+        if csv_path.exists():
+            try:
                 with open(csv_path) as f:
                     rows = list(csv_module.DictReader(f))
                 if rows:
-                    # strip whitespace from keys
-                    rows = [{k.strip(): v.strip() for k, v in r.items()}
-                            for r in rows]
-                    # find best mAP50 row
+                    rows = [
+                        {k.strip(): v.strip() for k, v in r.items()}
+                        for r in rows
+                    ]
                     map50_key = next(
-                        (k for k in rows[0] if "mAP50" in k and "95" not in k),
+                        (
+                            k for k in rows[0]
+                            if "mAP50" in k and "95" not in k
+                        ),
                         None,
                     )
                     if map50_key:
@@ -463,22 +401,25 @@ def _resolve_dataset_yaml_for_ultralytics(self) -> Path:
                         self.cfg.best_epoch = int(
                             float(best_row.get("epoch", -1))
                         )
-        except Exception as e:
-            logger.warning(f"Could not extract best metrics: {e}")
+            except Exception as e:
+                logger.warning(f"Could not parse results.csv: {e}")
 
-        # checkpoint paths
         exp_dir = self._output_dir / self.cfg.experiment_id
         best_pt = exp_dir / "weights" / "best.pt"
         last_pt = exp_dir / "weights" / "last.pt"
-        self.cfg.checkpoint_best = str(best_pt) if best_pt.exists() else ""
-        self.cfg.checkpoint_last = str(last_pt) if last_pt.exists() else ""
+        self.cfg.checkpoint_best = (
+            str(best_pt) if best_pt.exists() else ""
+        )
+        self.cfg.checkpoint_last = (
+            str(last_pt) if last_pt.exists() else ""
+        )
 
     def _copy_best_to_production(self) -> None:
-        """Copy best.pt to models/production/ for easy downstream use."""
-        import shutil
         best_pt = Path(self.cfg.checkpoint_best)
         if not best_pt.exists():
-            logger.warning("best.pt not found — skipping copy to production/")
+            logger.warning(
+                "best.pt not found — skipping copy to production/"
+            )
             return
         prod_dir = self._root / "models" / "production"
         prod_dir.mkdir(parents=True, exist_ok=True)
@@ -488,10 +429,11 @@ def _resolve_dataset_yaml_for_ultralytics(self) -> Path:
 
     def _save_final_metadata(self) -> None:
         meta_path = (
-            self._reports_dir / f"{self.cfg.experiment_id}_final.json"
+            self._reports_dir
+            / f"{self.cfg.experiment_id}_final.json"
         )
         save_json(asdict(self.cfg), meta_path)
-        logger.info(f"Final experiment metadata saved: {meta_path}")
+        logger.info(f"Final metadata saved: {meta_path}")
 
     def _build_result(self, ultralytics_result) -> TrainingResult:
         exp_dir = self._output_dir / self.cfg.experiment_id
@@ -516,7 +458,10 @@ def _resolve_dataset_yaml_for_ultralytics(self) -> Path:
         logger.info(f"  Dataset       : {self.cfg.dataset_version}")
         logger.info(f"  Architecture  : {self.cfg.model_architecture}")
         logger.info(f"  Weights       : {self.cfg.pretrained_weights}")
-        logger.info(f"  Classes       : {self.cfg.num_classes} {self.cfg.class_names}")
+        logger.info(
+            f"  Classes       : {self.cfg.num_classes} "
+            f"{self.cfg.class_names}"
+        )
         logger.info(f"  Image size    : {self.cfg.image_size}")
         logger.info(f"  Epochs        : {self.cfg.epochs}")
         logger.info(f"  Batch size    : {self.cfg.batch_size}")
@@ -530,10 +475,12 @@ def _resolve_dataset_yaml_for_ultralytics(self) -> Path:
         logger.info("")
         logger.info("=" * 60)
         logger.info("TRAINING COMPLETE")
-        logger.info(f"  Duration      : {result.training_duration_seconds:.0f}s")
-        logger.info(f"  Best mAP@50   : {result.best_map50:.4f}")
-        logger.info(f"  Best epoch    : {result.best_epoch}")
-        logger.info(f"  Best checkpoint : {result.best_checkpoint}")
+        logger.info(
+            f"  Duration    : {result.training_duration_seconds:.0f}s"
+        )
+        logger.info(f"  Best mAP@50 : {result.best_map50:.4f}")
+        logger.info(f"  Best epoch  : {result.best_epoch}")
+        logger.info(f"  Checkpoint  : {result.best_checkpoint}")
         logger.info("=" * 60)
 
     @staticmethod
@@ -553,7 +500,9 @@ def _resolve_dataset_yaml_for_ultralytics(self) -> Path:
             "python": platform.python_version(),
             "torch": torch.__version__,
             "cuda": (
-                torch.version.cuda if torch.cuda.is_available() else "N/A"
+                torch.version.cuda
+                if torch.cuda.is_available()
+                else "N/A"
             ),
         }
         for pkg in ("ultralytics", "cv2", "numpy"):
@@ -563,6 +512,3 @@ def _resolve_dataset_yaml_for_ultralytics(self) -> Path:
             except ImportError:
                 versions[pkg] = "not installed"
         return versions
-    
-    
-    
