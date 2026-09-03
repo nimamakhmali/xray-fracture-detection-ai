@@ -322,7 +322,6 @@ class FractureDetectionTrainer:
         # note: full determinism is not guaranteed across GPUs/platforms
         logger.info(f"Random seed set: {self.cfg.seed}")
 
-    def _run_ultralytics_training(self):
         """
         Core training call via Ultralytics API.
 
@@ -330,56 +329,103 @@ class FractureDetectionTrainer:
         All augmentation is handled internally by Ultralytics —
         validation/test splits never receive augmentation.
         """
-        from ultralytics import YOLO
 
-        weights = self.cfg.pretrained_weights
-        if not Path(weights).exists():
-            # Ultralytics will download from hub
-            logger.info(
-                f"Weights '{weights}' not found locally — "
-                f"Ultralytics will download from hub."
-            )
+# در src/training/trainer.py — متد _run_ultralytics_training را اینطور تغییر بده:
 
-        model = YOLO(weights)
+def _run_ultralytics_training(self):
+    from ultralytics import YOLO
+
+    weights = self.cfg.pretrained_weights
+    if not Path(weights).exists():
         logger.info(
-            f"Model loaded: {weights} | "
-            f"Architecture: {self.cfg.model_architecture}"
+            f"Weights '{weights}' not found locally — "
+            f"Ultralytics will download from hub."
         )
 
-        # resolve device
-        device = self._resolve_device(self.cfg.device)
-        logger.info(f"Training device: {device}")
+    model = YOLO(weights)
+    logger.info(
+        f"Model loaded: {weights} | "
+        f"Architecture: {self.cfg.model_architecture}"
+    )
 
-        train_kwargs = dict(
-            data=str(self.dataset_yaml),
-            epochs=self.cfg.epochs,
-            batch=self.cfg.batch_size,
-            imgsz=self.cfg.image_size,
-            optimizer=self.cfg.optimizer,
-            lr0=self.cfg.learning_rate,
-            weight_decay=self.cfg.weight_decay,
-            momentum=self.cfg.momentum,
-            device=device,
-            workers=self.cfg.workers,
-            seed=self.cfg.seed,
-            patience=self.cfg.early_stopping_patience,
-            project=str(self._output_dir),
-            name=self.cfg.experiment_id,
-            exist_ok=self.resume,
-            resume=self.resume,
-            # logging
-            plots=True,
-            save=True,
-            save_period=self._model_cfg.get("training", {}).get("save_period", 10),
-            # determinism-related
-            deterministic=False,  # True breaks some CUDA ops
-            # verbosity
-            verbose=True,
+    device = self._resolve_device(self.cfg.device)
+    logger.info(f"Training device: {device}")
+
+    # ── FIX: resolve dataset.yaml path برای Ultralytics ──────────────
+    # Ultralytics path را نسبت به cwd می‌خواند نه نسبت به yaml file.
+    # یک temp yaml با absolute path می‌سازیم تا yaml اصلی تغییر نکند.
+    resolved_yaml = self._resolve_dataset_yaml_for_ultralytics()
+    # ─────────────────────────────────────────────────────────────────
+
+    train_kwargs = dict(
+        data=str(resolved_yaml),        # ← از resolved_yaml استفاده کن
+        epochs=self.cfg.epochs,
+        batch=self.cfg.batch_size,
+        imgsz=self.cfg.image_size,
+        optimizer=self.cfg.optimizer,
+        lr0=self.cfg.learning_rate,
+        weight_decay=self.cfg.weight_decay,
+        momentum=self.cfg.momentum,
+        device=device,
+        workers=self.cfg.workers,
+        seed=self.cfg.seed,
+        patience=self.cfg.early_stopping_patience,
+        project=str(self._output_dir),
+        name=self.cfg.experiment_id,
+        exist_ok=self.resume,
+        resume=self.resume,
+        plots=True,
+        save=True,
+        save_period=self._model_cfg.get("training", {}).get("save_period", 10),
+        deterministic=False,
+        verbose=True,
+    )
+
+    logger.info(f"Ultralytics train kwargs: {train_kwargs}")
+    result = model.train(**train_kwargs)
+    return result
+
+
+def _resolve_dataset_yaml_for_ultralytics(self) -> Path:
+    """
+    Ultralytics resolves 'path' in dataset.yaml relative to cwd,
+    not relative to the yaml file location.
+
+    To avoid this ambiguity, we write a temporary yaml with
+    'path' as an absolute path. The original dataset.yaml is
+    never modified.
+    """
+    import tempfile
+    import shutil
+
+    cfg = dict(self._dataset_cfg)  # shallow copy
+
+    # resolve 'path' to absolute
+    raw_path = cfg.get("path", "data/processed")
+    if not Path(raw_path).is_absolute():
+        # relative to ai_module root (where dataset.yaml lives)
+        abs_path = (self.dataset_yaml.parent.parent / raw_path).resolve()
+    else:
+        abs_path = Path(raw_path)
+
+    if not abs_path.exists():
+        raise RuntimeError(
+            f"Dataset path does not exist: {abs_path}. "
+            f"Run prepare_dataset.py first."
         )
 
-        logger.info(f"Ultralytics train kwargs: {train_kwargs}")
-        result = model.train(**train_kwargs)
-        return result
+    cfg["path"] = str(abs_path)
+
+    # write to temp file in same directory as original yaml
+    # (so relative imports in yaml still work if any)
+    tmp_yaml = self.dataset_yaml.parent / "_ultralytics_resolved.yaml"
+    with open(tmp_yaml, "w", encoding="utf-8") as f:
+        yaml.dump(cfg, f, allow_unicode=True, sort_keys=False)
+
+    logger.info(f"Resolved dataset yaml written: {tmp_yaml}")
+    logger.info(f"  path (absolute): {abs_path}")
+    return tmp_yaml
+
 
     def _extract_best_metrics(self, result) -> None:
         """Extract best mAP50 and best epoch from Ultralytics results."""

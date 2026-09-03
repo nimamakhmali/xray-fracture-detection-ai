@@ -2,7 +2,7 @@
 # Model Architecture
 # ==============================
 model:
-  architecture: "yolov8n"           # yolov8n | yolov8s | yolov8m
+  architecture: "yolov8n"
   pretrained_weights: "yolov8n.pt"
   num_classes: 1
   class_names:
@@ -18,13 +18,13 @@ training:
   learning_rate: 0.01
   weight_decay: 0.0005
   momentum: 0.937
-  optimizer: "SGD"                  # SGD | Adam | AdamW
+  optimizer: "SGD"
   early_stopping_patience: 15
-  save_period: 10                   # save checkpoint every N epochs
-  device: "auto"                    # auto | cpu | 0 | 0,1
-
-  # Augmentation (controlled by albumentations in augmentation.py)
-  use_custom_augmentation: true
+  save_period: 10
+  device: "auto"
+  seed: 42                        # ← اضافه شد
+  workers: 8
+  use_custom_augmentation: false
   augmentation_probability: 0.5
 
 # ==============================
@@ -41,7 +41,7 @@ inference:
 # Export
 # ==============================
 export:
-  format: "onnx"                    # onnx | torchscript | trt
+  format: "onnx"
   opset: 17
   dynamic: false
   simplify: true
