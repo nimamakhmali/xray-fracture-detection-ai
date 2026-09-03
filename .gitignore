@@ -1,0 +1,40 @@
+labels/
+
+*.png
+*.txt
+*.jpg
+*.json  
+
+*yolo
+logs/
+
+*.png
+*.jpg
+
+
+# Dataset files
+data/
+
+# Dataset file types
+*.xml
+*.txt
+*.png
+*.json
+
+*.xml
+*.png
+*.json
+*.txt
+
+# Raw datasets
+data/raw/
+
+# Processed datasets
+data/processed/
+
+# Dataset artifacts
+data/**/*.xml
+data/**/*.txt
+data/**/*.png
+data/**/*.json
+
