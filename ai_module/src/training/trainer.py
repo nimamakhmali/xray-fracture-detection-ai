@@ -165,10 +165,67 @@ class FractureDetectionTrainer:
             framework_versions=self._collect_versions(),
         )
 
+
+   # --------------------------------------------------------------------------------
+    
+    def _setup_mlflow(self) -> None:
+        """
+        Configure MLflow filesystem backend.
+
+        The newer MLflow versions raise by default when using the filesystem
+        backend. Setting MLFLOW_ALLOW_FILE_STORE=true restores previous
+        behavior. This is a local development environment — no cloud
+        MLflow server is available.
+        """
+        import os
+        os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
+        logger.info("MLflow: filesystem backend enabled (MLFLOW_ALLOW_FILE_STORE=true)")
+
+    def _verify_dataset_freeze(self) -> None:
+        """
+        Verify that the frozen dataset has not been modified since freeze.
+        Only runs for non-smoke-test experiments.
+        """
+        from src.utils.dataset_freeze import verify_freeze
+
+        freeze_record = self._root / "reports" / "frozen_dataset_v1.json"
+        if not freeze_record.exists():
+            logger.warning(
+                "Freeze record not found — dataset freeze not verified. "
+                "Run scripts/freeze_dataset.py --repair-jpegs first."
+            )
+            return
+
+        result = verify_freeze(
+            freeze_record_path=freeze_record,
+            processed_dir=self._root / "data" / "processed",
+            dataset_yaml=self.dataset_yaml,
+        )
+        if not result["ok"]:
+            raise RuntimeError(
+                f"Dataset freeze verification FAILED: "
+                f"{result.get('mismatches', result.get('reason'))}. "
+                f"Dataset may have been modified. Re-run prepare_dataset.py."
+            )
+        logger.info(
+            f"Dataset freeze verified: version={result.get('version')}"
+        )
+        
+
+
     # ── public ───────────────────────────────────────────────────────────────
 
     def train(self) -> TrainingResult:
+        """Run training. Returns TrainingResult with all artifact paths."""
+        # setup MLflow BEFORE Ultralytics initializes it
+        self._setup_mlflow()
+
         self._pre_flight_checks()
+
+        # verify frozen dataset (skipped for smoke tests via no validation_report)
+        if self.validation_report:
+            self._verify_dataset_freeze()
+
         self._setup_seed()
         self._log_experiment_header()
 
@@ -203,15 +260,25 @@ class FractureDetectionTrainer:
 
         self._extract_best_metrics(result)
         self._save_final_metadata()
-        self._copy_best_to_production()
+
+        # FIXED: only promote to production if NOT a smoke test
+        # (smoke test has no validation_report)
+        if self.validation_report is not None:
+            self._copy_best_to_production()
+        else:
+            logger.warning(
+                "Smoke test checkpoint NOT copied to production/. "
+                "Only officially validated experiments are promoted."
+            )
 
         training_result = self._build_result(result)
         self._log_training_summary(training_result)
         return training_result
 
-    # ── private ───────────────────────────────────────────────────────────────
 
+    # ── private ───────────────────────────────────────────────────────────────
     def _pre_flight_checks(self) -> None:
+        """Block training if any prerequisite fails."""
         errors = []
 
         if not self.dataset_yaml.exists():
@@ -220,8 +287,7 @@ class FractureDetectionTrainer:
         if self.validation_report:
             if not self.validation_report.exists():
                 errors.append(
-                    f"Validation report not found: {self.validation_report}. "
-                    f"Run validate_dataset.py first."
+                    f"Validation report not found: {self.validation_report}."
                 )
             else:
                 try:
@@ -231,8 +297,7 @@ class FractureDetectionTrainer:
                     if status != VALIDATION_REPORT_READY_STATUS:
                         errors.append(
                             f"Dataset validation status is '{status}' — "
-                            f"expected '{VALIDATION_REPORT_READY_STATUS}'. "
-                            f"Fix dataset issues before training."
+                            f"expected '{VALIDATION_REPORT_READY_STATUS}'."
                         )
                     else:
                         logger.info(
@@ -242,25 +307,21 @@ class FractureDetectionTrainer:
                     errors.append(f"Cannot read validation report: {e}")
         else:
             logger.warning(
-                "No validation report path provided — skipping dataset "
-                "status gate. Acceptable only for smoke tests."
+                "No validation report path — skipping gate. "
+                "Acceptable only for smoke tests."
             )
 
         try:
             from ultralytics import YOLO  # noqa: F401
         except ImportError:
-            errors.append(
-                "ultralytics not installed. "
-                "Run: pip install ultralytics>=8.0.0"
-            )
+            errors.append("ultralytics not installed.")
 
         stats = self._dataset_cfg.get("stats", {})
         if stats:
             total = stats.get("total_images", 0)
             if total < 100:
                 errors.append(
-                    f"dataset.yaml reports only {total} images — "
-                    f"suspiciously low."
+                    f"dataset.yaml reports only {total} images — suspicious."
                 )
 
         if errors:
@@ -271,6 +332,7 @@ class FractureDetectionTrainer:
             )
 
         logger.info("All pre-flight checks passed.")
+
 
     def _setup_seed(self) -> None:
         import random
