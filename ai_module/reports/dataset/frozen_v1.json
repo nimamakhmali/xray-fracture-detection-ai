@@ -1,0 +1,57 @@
+{
+  "version": "frozen_v1",
+  "created_at": "2026-09-04T07:33:45.781219+00:00",
+  "seed": 42,
+  "hash_algorithm": "md5",
+  "dataset_yaml_hash": "f7620a9ccbd96b02c82de1a34df3985efe54e7f9f3cc1b357bce8854dbee6f4d",
+  "manifest_hash": "723371399d98c0af38a326593dbc875cd8526e8742a2ec9062b5b3266524ffe5",
+  "validation_report_hash": "e20ce3ceb70a5c7e439d8bd136a95deb51b09f48b85e2b5c3a2569309db58edb",
+  "total_images": 24337,
+  "total_labels": 24337,
+  "total_boxes": 19005,
+  "train_images": 16983,
+  "val_images": 3686,
+  "test_images": 3668,
+  "positive_images": 14263,
+  "negative_images": 10074,
+  "by_dataset": {
+    "fracatlas": 4010,
+    "grazpedwri": 20327
+  },
+  "by_dataset_split": {
+    "fracatlas": {
+      "train": 2806,
+      "val": 598,
+      "test": 606
+    },
+    "grazpedwri": {
+      "train": 14177,
+      "val": 3088,
+      "test": 3062
+    }
+  },
+  "annotation_status": {
+    "positive_clean": 14263,
+    "negative_clean": 10074
+  },
+  "file_count": 48674,
+  "files_record": "frozen_v1_files.json",
+  "jpeg_audit_summary": {
+    "total_scanned": 4010,
+    "ok": 4010,
+    "needs_repair": 0,
+    "repaired": 0,
+    "unreadable": 0,
+    "not_jpeg": 0,
+    "repair_method": "append_eoi_marker_lossless"
+  },
+  "notes": [
+    "patient_leakage (from validation report): {'train_val_overlap': [], 'train_test_overlap': [], 'val_test_overlap': [], 'datasets_with_unknown_patient_id': ['fracatlas']}",
+    "hash_leakage (from validation report): {'train_val_hash_overlap': [], 'train_test_hash_overlap': [], 'val_test_hash_overlap': []}",
+    "FracAtlas patient_id is UNAVAILABLE in source metadata; patient-level leakage unverifiable for that source."
+  ],
+  "environment": {
+    "python": "3.12.3",
+    "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.39"
+  }
+}

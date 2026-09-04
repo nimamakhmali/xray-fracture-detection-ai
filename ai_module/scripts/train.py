@@ -1,33 +1,11 @@
 #!/usr/bin/env python3
 """
-scripts/train.py
+scripts/train.py — the only entry point for training.
 
-Training entry point for the fracture detection baseline.
-
-This script is the ONLY way to start a training run.
-It enforces:
-  1. Dataset validation gate (training blocked if dataset not READY)
-  2. Reproducible configuration via model_config.yaml
-  3. CLI overrides for experimentation
-  4. Clean experiment directory
-  5. Saved experiment metadata
-
-Usage:
-    # Smoke test (2 epochs, fast verification)
-    python scripts/train.py --smoke-test
-
-    # Baseline training (50 epochs)
-    python scripts/train.py
-
-    # With explicit device
-    python scripts/train.py --device cpu
-    python scripts/train.py --device 0
-
-    # Resume interrupted training
-    python scripts/train.py --resume --name <experiment_id>
-
-    # Override specific params
-    python scripts/train.py --epochs 30 --batch-size 8
+  Smoke test  : python scripts/train.py --smoke-test --device cpu --fraction 0.02
+  CPU baseline: python scripts/train.py --config configs/model_config_cpu.yaml --device cpu --name baseline_yolov8n_cpu
+  GPU baseline: python scripts/train.py --config configs/model_config.yaml --device 0
+  Resume      : python scripts/train.py --resume --name <experiment_id>
 """
 import argparse
 import sys
@@ -42,106 +20,52 @@ logger = get_logger("train")
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description="Train YOLOv8 fracture detection baseline."
-    )
-    # paths
-    p.add_argument(
-        "--dataset-yaml", default="configs/dataset.yaml",
-        help="Path to dataset YAML (default: configs/dataset.yaml)",
-    )
-    p.add_argument(
-        "--model-config", default="configs/model_config.yaml",
-        help="Path to model config YAML",
-    )
-    p.add_argument(
-        "--validation-report", default="reports/validation_report.json",
-        help="Path to validation report (dataset gate)",
-    )
-    p.add_argument(
-        "--weights", default=None,
-        help="Pretrained weights (overrides model_config.yaml)",
-    )
-    # experiment
-    p.add_argument("--name", default=None, help="Experiment name")
-    p.add_argument("--output-dir", default="runs/detect", help="Output root")
+    p = argparse.ArgumentParser(description="Train YOLOv8 fracture detection baseline.")
+    p.add_argument("--dataset-yaml", default="configs/dataset.yaml")
+    p.add_argument("--config", "--model-config", dest="model_config", default="configs/model_config.yaml")
+    p.add_argument("--validation-report", default="reports/validation_report.json")
+    p.add_argument("--weights", default=None)
+    p.add_argument("--name", default=None)
+    p.add_argument("--output-dir", default="runs/detect")
     p.add_argument("--reports-dir", default="reports/training")
-    # training params (all override model_config.yaml)
     p.add_argument("--epochs", type=int, default=None)
     p.add_argument("--batch-size", type=int, default=None)
     p.add_argument("--image-size", type=int, default=None)
-    p.add_argument("--device", default=None, help="cpu | 0 | 0,1 | auto")
+    p.add_argument("--device", default=None, help="cpu | auto | 0 | 0,1")
     p.add_argument("--workers", type=int, default=None)
     p.add_argument("--seed", type=int, default=None)
-    # flags
-    p.add_argument(
-        "--resume", action="store_true",
-        help="Resume training from last checkpoint",
-    )
-    p.add_argument(
-        "--smoke-test", action="store_true",
-        help="Run 2 epochs with batch=4 to verify pipeline (no gate check)",
-    )
-    p.add_argument(
-        "--skip-validation-gate", action="store_true",
-        help="Skip dataset validation report check (use only for debugging)",
-    )
+    p.add_argument("--fraction", type=float, default=None, help="train-set fraction (SMOKE TEST ONLY)")
+    p.add_argument("--resume", action="store_true")
+    p.add_argument("--smoke-test", action="store_true", help="no gates; default 1 epoch, batch 4")
+    p.add_argument("--promote", action="store_true", help="copy best.pt to models/production/ (official runs only)")
     return p.parse_args()
 
 
 def main() -> None:
-    args = parse_args()
-
-    # resolve paths from repo root (ai_module/)
+    a = parse_args()
     root = Path(__file__).resolve().parent.parent
-
-    dataset_yaml = root / args.dataset_yaml
-    model_config = root / args.model_config
-    validation_report = root / args.validation_report
-    output_dir = root / args.output_dir
-    reports_dir = root / args.reports_dir
-
-    # smoke test overrides
-    epochs = args.epochs
-    batch_size = args.batch_size
-    skip_gate = args.skip_validation_gate
-
-    if args.smoke_test:
-        logger.warning(
-            "SMOKE TEST MODE — 2 epochs, batch=4. "
-            "This is NOT the baseline experiment."
-        )
-        epochs = epochs or 2
-        batch_size = batch_size or 4
-        skip_gate = True  # smoke test doesn't need full gate
-
-    # build trainer
-    trainer = FractureDetectionTrainer(
-        dataset_yaml=dataset_yaml,
-        model_config_yaml=model_config,
-        validation_report=None if skip_gate else validation_report,
-        output_dir=output_dir,
-        reports_dir=reports_dir,
-        epochs=epochs,
-        batch_size=batch_size,
-        image_size=args.image_size,
-        device=args.device,
-        workers=args.workers,
-        seed=args.seed,
-        resume=args.resume,
-        experiment_name=args.name,
-        pretrained_weights=args.weights,
-    )
+    epochs, batch = a.epochs, a.batch_size
+    if a.smoke_test:
+        logger.warning("SMOKE TEST MODE — not a baseline experiment.")
+        epochs, batch = epochs or 1, batch or 4
+    elif a.fraction is not None and a.fraction != 1.0:
+        logger.error("--fraction is only permitted with --smoke-test."); sys.exit(2)
 
     try:
+        trainer = FractureDetectionTrainer(
+            dataset_yaml=root / a.dataset_yaml, model_config_yaml=root / a.model_config,
+            validation_report=None if a.smoke_test else root / a.validation_report,
+            output_dir=root / a.output_dir, reports_dir=root / a.reports_dir,
+            epochs=epochs, batch_size=batch, image_size=a.image_size, device=a.device,
+            workers=a.workers, seed=a.seed, resume=a.resume,
+            experiment_name=a.name or ("smoke_test_cpu" if a.smoke_test else None),
+            pretrained_weights=a.weights, fraction=a.fraction, promote_to_production=a.promote,
+        )
         result = trainer.train()
-        logger.info(f"Training completed successfully.")
-        logger.info(f"Best mAP@50 : {result.best_map50:.4f}")
-        logger.info(f"Checkpoint  : {result.best_checkpoint}")
-        sys.exit(0)
     except Exception as e:
         logger.error(f"Training failed: {e}")
         sys.exit(1)
+    logger.info(f"Done. best.pt={result.best_checkpoint} val mAP50={result.best_map50:.4f}")
 
 
 if __name__ == "__main__":

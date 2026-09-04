@@ -1,0 +1,450 @@
+{
+  "pipeline": "phase1_dataset_preparation_v2",
+  "seed": 42,
+  "dry_run": false,
+  "sources": {
+    "fracatlas": {
+      "total": 4084,
+      "valid": 4083,
+      "positive": 717
+    },
+    "grazpedwri": {
+      "total": 20327,
+      "valid": 20327,
+      "positive": 13550
+    }
+  },
+  "deduplication": {
+    "total_before": 24411,
+    "total_after": 24396,
+    "duplicates_removed": 15,
+    "duplicates_that_were_positive": 4,
+    "duplicate_list": [
+      {
+        "stem": "IMG0000005",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0000003",
+        "was_positive": false,
+        "kept_sample_was_positive": false
+      },
+      {
+        "stem": "IMG0002291",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0000003",
+        "was_positive": false,
+        "kept_sample_was_positive": false
+      },
+      {
+        "stem": "IMG0002292",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0000000",
+        "was_positive": false,
+        "kept_sample_was_positive": false
+      },
+      {
+        "stem": "IMG0002293",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0000003",
+        "was_positive": false,
+        "kept_sample_was_positive": false
+      },
+      {
+        "stem": "IMG0002294",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0000006",
+        "was_positive": false,
+        "kept_sample_was_positive": false
+      },
+      {
+        "stem": "IMG0002295",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0000001",
+        "was_positive": false,
+        "kept_sample_was_positive": false
+      },
+      {
+        "stem": "IMG0002296",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0000002",
+        "was_positive": false,
+        "kept_sample_was_positive": false
+      },
+      {
+        "stem": "IMG0002297",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0000004",
+        "was_positive": false,
+        "kept_sample_was_positive": false
+      },
+      {
+        "stem": "IMG0002299",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0000261",
+        "was_positive": true,
+        "kept_sample_was_positive": true
+      },
+      {
+        "stem": "IMG0002300",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0000261",
+        "was_positive": true,
+        "kept_sample_was_positive": true
+      },
+      {
+        "stem": "IMG0002379",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0002298",
+        "was_positive": true,
+        "kept_sample_was_positive": true
+      },
+      {
+        "stem": "IMG0002615",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0001763",
+        "was_positive": true,
+        "kept_sample_was_positive": true
+      },
+      {
+        "stem": "IMG0004341",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0004314",
+        "was_positive": false,
+        "kept_sample_was_positive": false
+      },
+      {
+        "stem": "IMG0004346",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0004310",
+        "was_positive": false,
+        "kept_sample_was_positive": false
+      },
+      {
+        "stem": "IMG0004347",
+        "source": "fracatlas",
+        "duplicate_of": "fracatlas:IMG0004308",
+        "was_positive": false,
+        "kept_sample_was_positive": false
+      }
+    ]
+  },
+  "splitting": {
+    "train": {
+      "count": 17024,
+      "positive": 9894,
+      "negative": 7130
+    },
+    "val": {
+      "count": 3697,
+      "positive": 2160,
+      "negative": 1537
+    },
+    "test": {
+      "count": 3674,
+      "positive": 2209,
+      "negative": 1465
+    }
+  },
+  "split_strategy_per_source": {
+    "fracatlas": "image_level_stratified",
+    "grazpedwri": "group_level:patient_id"
+  },
+  "dropped_samples": [
+    {
+      "stem": "IMG0004073",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (3 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004298",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (19 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004143",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (10 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004252",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (67 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004273",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (8 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004279",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (5 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004304",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (22 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004228",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (17 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004258",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (0 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004290",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (54 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004256",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (66 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004092",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (3 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004159",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (8 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004036",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (14 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004288",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (1 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004189",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (16 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004029",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (22 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004098",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (17 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004263",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (24 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004286",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (46 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004148",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (14 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004028",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (20 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004177",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (34 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004070",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (41 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004149",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (33 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004109",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (5 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004122",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (26 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004142",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (32 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004129",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (6 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004123",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (17 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004285",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (9 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004255",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (20 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004155",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (18 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004251",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (19 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004130",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (8 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004154",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (22 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004174",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (4 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004119",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (6 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004291",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (13 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004079",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (24 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004170",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (11 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004297",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (5 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004169",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (14 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004173",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (0 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004145",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (10 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004275",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (24 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004308",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (40 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004100",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (15 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004120",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (8 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004084",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (5 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004226",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (23 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004227",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (30 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004076",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (0 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004121",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (40 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004278",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (29 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004134",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (1 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004259",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (7 bytes not processed)"
+    },
+    {
+      "stem": "IMG0004194",
+      "source": "fracatlas",
+      "reason": "image_integrity_failed:truncated_or_corrupted: image file is truncated (10 bytes not processed)"
+    }
+  ],
+  "dropped_samples_by_reason": {
+    "image_integrity_failed": 58
+  },
+  "reconciliation": {},
+  "clinical_notes": {
+    "grazpedwri_clinically_adjacent_negatives": 169
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "weights": "/home/nimamakhmali/Documents/Ai Project /xray-fracture-detection-ai/ai_module/models/production/best_model.pt",
+  "split": "test",
+  "confidence_threshold": 0.25,
+  "iou_threshold": 0.45,
+  "dataset_version": "frozen_v1",
+  "combined": {
+    "subset": "combined",
+    "split": "test",
+    "num_images": 3668,
+    "num_positive_images": 2209,
+    "num_negative_images": 1459,
+    "num_gt_boxes": 0,
+    "num_predicted_boxes": 0,
+    "precision": 0.8787417554540842,
+    "recall": 0.5943719972546329,
+    "f1": 0.7091,
+    "map50": 0.5735864227617666,
+    "map50_95": 0.28531337297068277,
+    "image_level_tp": 0,
+    "image_level_fp": 0,
+    "image_level_fn": 0,
+    "image_level_tn": 0,
+    "inference_time_ms_mean": 70.74386998745432,
+    "inference_time_ms_total": -1.0
+  },
+  "fracatlas": {
+    "subset": "fracatlas",
+    "split": "test",
+    "num_images": 606,
+    "num_positive_images": 108,
+    "num_negative_images": 498,
+    "num_gt_boxes": 132,
+    "num_predicted_boxes": 16,
+    "precision": 0.8462,
+    "recall": 0.1019,
+    "f1": 0.1818,
+    "map50": -1.0,
+    "map50_95": -1.0,
+    "image_level_tp": 11,
+    "image_level_fp": 2,
+    "image_level_fn": 97,
+    "image_level_tn": 496,
+    "inference_time_ms_mean": 103.4,
+    "inference_time_ms_total": 62687.6
+  },
+  "grazpedwri": {
+    "subset": "grazpedwri",
+    "split": "test",
+    "num_images": 3062,
+    "num_positive_images": 2101,
+    "num_negative_images": 961,
+    "num_gt_boxes": 2782,
+    "num_predicted_boxes": 1962,
+    "precision": 0.9863,
+    "recall": 0.7558,
+    "f1": 0.8558,
+    "map50": -1.0,
+    "map50_95": -1.0,
+    "image_level_tp": 1588,
+    "image_level_fp": 22,
+    "image_level_fn": 513,
+    "image_level_tn": 939,
+    "inference_time_ms_mean": 92.0,
+    "inference_time_ms_total": 281820.5
+  },
+  "error_analysis": {
+    "total_fp": 24,
+    "total_fn": 610,
+    "fp_by_source": {
+      "fracatlas": 2,
+      "grazpedwri": 22
+    },
+    "fn_by_source": {
+      "fracatlas": 97,
+      "grazpedwri": 513
+    },
+    "clinically_adjacent_fp_count": 0,
+    "clinically_adjacent_fp_note": "FP samples where annotation_status != negative_clean. These may include the 169 fracture-adjacent findings in GRAZPEDWRI-DX (periosteal reaction, pronator sign, etc.). Do not automatically relabel these samples.",
+    "fp_example_ids": [
+      "20833",
+      "21133",
+      "21826",
+      "21832",
+      "22726",
+      "22789",
+      "22936",
+      "23358",
+      "23556",
+      "23621"
+    ],
+    "fn_example_ids": [
+      "20669",
+      "20671",
+      "20672",
+      "20673",
+      "20674",
+      "20675",
+      "20676",
+      "20677",
+      "20678",
+      "20679"
+    ]
+  },
+  "domain_shift_summary": {
+    "note": "FracAtlas covers multi-region anatomy (hand/leg/hip/shoulder). GRAZPEDWRI-DX covers pediatric wrist imaging. Differences in per-source metrics indicate domain shift.",
+    "recall_delta_fa_minus_grz": "-0.654",
+    "precision_delta_fa_minus_grz": "-0.140",
+    "f1_delta_fa_minus_grz": "-0.674",
+    "inference_time_delta_ms": "+11.400",
+    "fracatlas_positive_rate": 0.178,
+    "grazpedwri_positive_rate": 0.686
+  },
+  "known_limitations": [
+    "Patient-level leakage verified for GRAZPEDWRI-DX only. FracAtlas lacks patient identifiers — image-level split used.",
+    "169 GRAZPEDWRI-DX samples are fracture-negative but contain clinically adjacent findings (periosteal reaction, pronator sign, bone anomaly). These may cause systematic false positives.",
+    "GRAZPEDWRI-DX is pediatric wrist imaging only. FracAtlas covers multi-region anatomy. Model performance may differ significantly by anatomical region.",
+    "Model is NOT clinically validated. Results are research/development metrics only."
+  ]
+}

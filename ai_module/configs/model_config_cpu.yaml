@@ -1,0 +1,39 @@
+# CPU-only Phase 2 baseline. Identical to model_config.yaml EXCEPT the three
+# documented deviations below. Rationale: measured 1.7 h/epoch at batch=4 on
+# i5-1235U (smoke test 2026-09-03); 50 epochs ≈ 3.5 days is not feasible.
+model:
+  architecture: "yolov8n"
+  pretrained_weights: "yolov8n.pt"
+  num_classes: 1
+  class_names: ["fracture"]
+
+training:
+  epochs: 25                 # DEVIATION 1: 50 -> 25 (CPU time budget ≈ 40–45 h)
+  batch_size: 8              # DEVIATION 2: 16 -> 8 (RAM headroom on 16 GB laptop)
+  image_size: 640
+  learning_rate: 0.01
+  weight_decay: 0.0005
+  momentum: 0.937
+  optimizer: "SGD"
+  early_stopping_patience: 15
+  save_period: 5             # DEVIATION 3: checkpoint every 5 epochs (long run, interruption safety)
+  device: "cpu"
+  seed: 42
+  deterministic: true
+  workers: 0                 # Ultralytics forces 0 on CPU anyway; recorded for honesty
+  use_custom_augmentation: false
+  augmentation_probability: 0.5
+
+inference:
+  confidence_threshold: 0.25   # default only — operating point selected later on VAL
+  iou_threshold: 0.45
+  image_size: 640
+  max_detections: 10
+  device: "cpu"
+
+paths:
+  checkpoints: "models/checkpoints/"
+  production: "models/production/"
+  logs: "logs/"
+  mlflow_tracking: "mlruns/"
+  mlflow_experiment: "fracture-detection-phase2"

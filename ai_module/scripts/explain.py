@@ -1,137 +1,94 @@
 #!/usr/bin/env python3
 """
 scripts/explain.py
-
-Generate explainability visualizations (Grad-CAM heatmaps + bounding boxes)
-for fracture detections.
-
-Usage:
-    # explain single image
-    python scripts/explain.py \
-        --weights models/production/best_model.pt \
-        --image data/processed/val/images/grz_0001_....png
-
-    # explain multiple images from val set
-    python scripts/explain.py \
-        --weights models/production/best_model.pt \
-        --val-samples 5
-
-    # explain with lower confidence threshold
-    python scripts/explain.py \
-        --weights models/production/best_model.pt \
-        --image <path> --conf 0.15
+  single image : python scripts/explain.py --weights <best.pt> --image <path>
+  val TP set   : python scripts/explain.py --weights <best.pt> --val-samples 8 --conf <selected τ>
+Outputs: runs/explainability/<run_id>/<image_stem>/*  +  reports/explainability/<run_id>_summary.json
 """
 import argparse
+import random
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.explainability.cam import YOLOExplainability
+from src.explainability.cam import YOLOExplainability, DEFAULT_TARGET_LAYER
 from src.data.manifest import ManifestStore
+from src.utils.file_utils import save_json
+from src.utils.provenance import derive_run_id, sha256_file
 from src.utils.logger import get_logger
 
 logger = get_logger("explain")
 
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description="Generate Grad-CAM explainability for fracture detections."
-    )
-    p.add_argument(
-        "--weights", required=True,
-        help="Path to model weights (.pt)",
-    )
-    p.add_argument("--image", default=None, help="Single image path")
-    p.add_argument(
-        "--val-samples", type=int, default=0,
-        help="Explain N random val-set TP samples",
-    )
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--weights", required=True)
+    p.add_argument("--image", default=None)
+    p.add_argument("--val-samples", type=int, default=0, help="explain N val-positive images with a detection (TPs)")
     p.add_argument("--conf", type=float, default=0.25)
     p.add_argument("--iou", type=float, default=0.45)
-    p.add_argument(
-        "--detection-index", type=int, default=0,
-        help="Which detection to explain (0=highest confidence)",
-    )
-    p.add_argument(
-        "--output-dir", default="runs/explainability",
-    )
-    p.add_argument(
-        "--manifest", default="data/processed/manifest.csv",
-    )
+    p.add_argument("--detection-index", type=int, default=0, help="-1 = all detections")
+    p.add_argument("--target-layer", default=DEFAULT_TARGET_LAYER)
+    p.add_argument("--output-dir", default="runs/explainability")
+    p.add_argument("--reports-dir", default="reports/explainability")
+    p.add_argument("--manifest", default="data/processed/manifest.csv")
     p.add_argument("--device", default=None)
+    p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
+def main():
+    a = parse_args()
     root = Path(__file__).resolve().parent.parent
-
-    weights = root / args.weights
+    weights = Path(a.weights) if Path(a.weights).is_absolute() else root / a.weights
     if not weights.exists():
-        logger.error(f"Weights not found: {weights}")
-        sys.exit(1)
+        logger.error(f"Weights not found: {weights}"); sys.exit(1)
+    run_id = derive_run_id(weights, sha256_file(weights))
+    out_root = root / a.output_dir / run_id
+    ex = YOLOExplainability(weights, target_layer=a.target_layer, device=a.device)
 
-    output_dir = root / args.output_dir
-    explainer = YOLOExplainability(
-        model_path=weights,
-        device=args.device,
-    )
+    todo = []
+    if a.image:
+        todo.append(Path(a.image) if Path(a.image).is_absolute() else root / a.image)
+    skipped_no_det = 0
+    if a.val_samples > 0:
+        store = ManifestStore.load(root / a.manifest)
+        pos = sorted((r for r in store.by_split("val") if r.fracture_positive == "True"), key=lambda r: r.sample_id)
+        random.Random(a.seed).shuffle(pos)
+        for r in pos:
+            if len(todo) >= a.val_samples + (1 if a.image else 0):
+                break
+            img = root / "data" / "processed" / "val" / "images" / r.image_path
+            b = ex.detect(img, a.conf, a.iou)
+            if b is None or len(b) == 0:
+                skipped_no_det += 1; continue
+            todo.append(img)
+    if not todo:
+        logger.error("Nothing to explain (use --image or --val-samples)."); sys.exit(1)
 
-    images_to_explain = []
-
-    if args.image:
-        images_to_explain.append(Path(args.image))
-
-    if args.val_samples > 0:
-        manifest_path = root / args.manifest
-        if not manifest_path.exists():
-            logger.error(f"Manifest not found: {manifest_path}")
-            sys.exit(1)
-        store = ManifestStore.load(manifest_path)
-        val_positive = [
-            r for r in store.by_split("val")
-            if r.fracture_positive == "True"
-        ]
-        import random
-        random.seed(42)
-        selected = random.sample(
-            val_positive, min(args.val_samples, len(val_positive))
-        )
-        processed_dir = root / "data" / "processed"
-        for r in selected:
-            img_path = processed_dir / "val" / "images" / r.image_path
-            if img_path.exists():
-                images_to_explain.append(img_path)
-
-    if not images_to_explain:
-        logger.error("No images to explain. Use --image or --val-samples.")
-        sys.exit(1)
-
-    success = 0
-    for img_path in images_to_explain:
-        logger.info(f"Explaining: {img_path.name}")
+    entries, methods = [], {"gradcam": 0, "activation": 0}
+    for img in todo:
         try:
-            results = explainer.explain(
-                image_path=img_path,
-                conf_threshold=args.conf,
-                iou_threshold=args.iou,
-                detection_index=args.detection_index,
-                output_dir=output_dir / img_path.stem,
-            )
-            if results:
-                success += 1
-                logger.info(
-                    f"  → {len(results)} detection(s) explained, "
-                    f"method={results[0].heatmap_method}"
-                )
-            else:
-                logger.info("  → No detections found.")
+            res = ex.explain(img, a.conf, a.iou, a.detection_index, out_root / img.stem)
+            for r in res:
+                methods[r.heatmap_method] = methods.get(r.heatmap_method, 0) + 1
+            entries.append({"image": str(img), "detections_explained": len(res),
+                            "methods": [r.heatmap_method for r in res], "confidences": [round(r.confidence, 4) for r in res],
+                            "anchor_iou": [round(r.anchor_iou_with_detection, 3) for r in res], "output_dir": str(out_root / img.stem)})
+            logger.info(f"{img.name}: {len(res)} explained {[r.heatmap_method for r in res]}")
         except Exception as e:
-            logger.error(f"  → Failed: {e}")
+            entries.append({"image": str(img), "error": str(e)})
+            logger.error(f"{img.name}: FAILED — {e}")
 
-    logger.info(f"Explainability complete: {success}/{len(images_to_explain)} images.")
-    sys.exit(0)
+    summary = {"run_id": run_id, "weights": str(weights), "checkpoint_sha256": ex.checkpoint_sha256,
+               "experiment_id": ex.experiment_id, "dataset_version": ex.dataset_version,
+               "target_layer": ex.target_layer, "conf": a.conf, "iou": a.iou, "seed": a.seed,
+               "val_positives_skipped_no_detection": skipped_no_det, "method_counts": methods, "entries": entries,
+               "disclaimer": "Heatmaps are model-debugging artifacts; not medically validated."}
+    save_json(summary, out_root / "index.json")
+    save_json(summary, root / a.reports_dir / f"{run_id}_summary.json")
+    logger.info(f"Explainability done: {sum('error' not in e for e in entries)}/{len(entries)} ok → {out_root}")
 
 
 if __name__ == "__main__":

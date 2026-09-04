@@ -1,0 +1,125 @@
+{
+  "status": "READY_FOR_TRAINING",
+  "total_images": 24337,
+  "total_labels": 24337,
+  "positive_images": 14263,
+  "negative_images": 10074,
+  "total_boxes": 19005,
+  "boxes_by_class": {
+    "0": 19005
+  },
+  "missing_labels": 0,
+  "orphan_labels": 0,
+  "corrupted_images": 0,
+  "invalid_label_files": 0,
+  "out_of_range_boxes": 0,
+  "zero_area_boxes": 0,
+  "duplicate_images": 0,
+  "duplicate_annotations": 0,
+  "split_stats": {
+    "train": {
+      "split": "train",
+      "total_images": 16983,
+      "total_labels": 16983,
+      "positive_images": 9894,
+      "negative_images": 7089,
+      "total_boxes": 13173,
+      "missing_labels": 0,
+      "orphan_labels": 0,
+      "corrupted_images": 0,
+      "invalid_label_files": 0
+    },
+    "val": {
+      "split": "val",
+      "total_images": 3686,
+      "total_labels": 3686,
+      "positive_images": 2160,
+      "negative_images": 1526,
+      "total_boxes": 2918,
+      "missing_labels": 0,
+      "orphan_labels": 0,
+      "corrupted_images": 0,
+      "invalid_label_files": 0
+    },
+    "test": {
+      "split": "test",
+      "total_images": 3668,
+      "total_labels": 3668,
+      "positive_images": 2209,
+      "negative_images": 1459,
+      "total_boxes": 2914,
+      "missing_labels": 0,
+      "orphan_labels": 0,
+      "corrupted_images": 0,
+      "invalid_label_files": 0
+    }
+  },
+  "issues": [],
+  "critical_errors": [],
+  "warnings": [
+    "Datasets with UNVERIFIABLE patient_id (leakage cannot be proven, only assumed absent): ['fracatlas']"
+  ],
+  "patient_leakage": {
+    "train_val_overlap": [],
+    "train_test_overlap": [],
+    "val_test_overlap": [],
+    "datasets_with_unknown_patient_id": [
+      "fracatlas"
+    ]
+  },
+  "hash_leakage": {
+    "train_val_hash_overlap": [],
+    "train_test_hash_overlap": [],
+    "val_test_hash_overlap": []
+  },
+  "dataset_yaml_consistency": {
+    "checked": true,
+    "yaml_path": "configs/dataset.yaml",
+    "mismatches": {},
+    "is_consistent": true
+  },
+  "split_ratio_check": {
+    "train": {
+      "target": 0.7,
+      "actual": 0.6978,
+      "deviation": 0.0022,
+      "within_tolerance": true
+    },
+    "val": {
+      "target": 0.15,
+      "actual": 0.1515,
+      "deviation": 0.0015,
+      "within_tolerance": true
+    },
+    "test": {
+      "target": 0.15,
+      "actual": 0.1507,
+      "deviation": 0.0007,
+      "within_tolerance": true
+    }
+  },
+  "annotation_status_distribution": {
+    "positive_clean": 14263,
+    "negative_clean": 10074
+  },
+  "manifest_summary": {
+    "total": 24337,
+    "positive": 14263,
+    "negative": 10074,
+    "by_dataset": {
+      "fracatlas": 4010,
+      "grazpedwri": 20327
+    },
+    "by_split": {
+      "train": 16983,
+      "val": 3686,
+      "test": 3668
+    },
+    "annotation_status_distribution": {
+      "positive_clean": 14263,
+      "negative_clean": 10074
+    },
+    "avg_width": 562.1,
+    "avg_height": 947.2
+  }
+}

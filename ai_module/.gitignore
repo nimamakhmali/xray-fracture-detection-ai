@@ -115,3 +115,9 @@ data/**/*.xml
 # data/**/*.txt
 data/**/*.png
 data/**/*.json
+# ---- Phase 2 evidence must be tracked (overrides global *.json / *.png above) ----
+!reports/
+!reports/**
+reports/**/visual_samples*/
+runs/
+configs/_ultralytics_resolved.yaml

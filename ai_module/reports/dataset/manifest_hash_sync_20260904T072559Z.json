@@ -1,0 +1,142 @@
+{
+  "synced_at": "20260904T072559Z",
+  "backup": "/home/nimamakhmali/Documents/Ai Project /xray-fracture-detection-ai/ai_module/data/manifest_backups/manifest_20260904T072559Z.csv",
+  "updated_rows": 27,
+  "updated": [
+    {
+      "path": "test/images/fa_IMG0004302.jpg",
+      "manifest_hash": "7a8c7b555ce6cfd3889a977c92656e14",
+      "disk_hash": "aeed8d1b8093495bf42cafd93090a110"
+    },
+    {
+      "path": "train/images/fa_IMG0004027.jpg",
+      "manifest_hash": "1efc236679f735ccc88b7d6e9a4ccf2f",
+      "disk_hash": "d366ce4da01e986cc3c9458adbcfe2e3"
+    },
+    {
+      "path": "train/images/fa_IMG0004062.jpg",
+      "manifest_hash": "a60bba71b94c74742f30f4d529e170de",
+      "disk_hash": "7bffc5c7f7ad112ba0a80638679295d6"
+    },
+    {
+      "path": "train/images/fa_IMG0004075.jpg",
+      "manifest_hash": "2c78f835d932be0853754eb1a4582fcf",
+      "disk_hash": "e2b7130a5443541e211862cda1990cfe"
+    },
+    {
+      "path": "train/images/fa_IMG0004094.jpg",
+      "manifest_hash": "48335456435db925ac54324c675b7a08",
+      "disk_hash": "530bfca4e7577a406e1fc02838f04ebd"
+    },
+    {
+      "path": "train/images/fa_IMG0004097.jpg",
+      "manifest_hash": "c37a83f84ad29359fbe8d5e66e18e06a",
+      "disk_hash": "1205c8965057ce663caa794138a81710"
+    },
+    {
+      "path": "train/images/fa_IMG0004105.jpg",
+      "manifest_hash": "e57574148f32294406a93c3db321c884",
+      "disk_hash": "348c9d9f03ef57c1f5cc04782a5e52ed"
+    },
+    {
+      "path": "train/images/fa_IMG0004107.jpg",
+      "manifest_hash": "b77b7a66ee59a52ea093a69a56c703d7",
+      "disk_hash": "3d4659bc0e7831888d4d874a482a83f6"
+    },
+    {
+      "path": "train/images/fa_IMG0004146.jpg",
+      "manifest_hash": "9c90b9815a7cf139bbe4ee1ffd413053",
+      "disk_hash": "a1e4a2146c6818583d0959f7b8dd5829"
+    },
+    {
+      "path": "train/images/fa_IMG0004167.jpg",
+      "manifest_hash": "1135ab312f7573975d99e2f2c0bc958a",
+      "disk_hash": "76ab317f676a03485fc0ec76773e5154"
+    },
+    {
+      "path": "train/images/fa_IMG0004179.jpg",
+      "manifest_hash": "6d6c82a84254aefa169e0610ffce9c29",
+      "disk_hash": "1b2e55359638a68d9e898947d7d5c523"
+    },
+    {
+      "path": "train/images/fa_IMG0004182.jpg",
+      "manifest_hash": "2d0cbc717b085a3442d4ab1c6d71d859",
+      "disk_hash": "12b3bff4d4e6178d18a7f8e4ae4fd630"
+    },
+    {
+      "path": "train/images/fa_IMG0004195.jpg",
+      "manifest_hash": "4c86a95110affcba3576f3cbe9a52e2b",
+      "disk_hash": "216493d55c3af207cf3e1d151b914e49"
+    },
+    {
+      "path": "train/images/fa_IMG0004214.jpg",
+      "manifest_hash": "402a000fea5446486bbc582fb98fa473",
+      "disk_hash": "36e6621c9e505b34fadc7e82b65e9b8f"
+    },
+    {
+      "path": "train/images/fa_IMG0004223.jpg",
+      "manifest_hash": "d7fa5090650cd139156fe6bc81c8709e",
+      "disk_hash": "6692871b9a4fef91d09e568eaac31638"
+    },
+    {
+      "path": "train/images/fa_IMG0004225.jpg",
+      "manifest_hash": "28165d868a5c74a1a1b5ee4b426ba686",
+      "disk_hash": "f7e4d254ae520638233fc4856cbf88c1"
+    },
+    {
+      "path": "train/images/fa_IMG0004244.jpg",
+      "manifest_hash": "0f98c1dbf95e4261758f3d346f16303a",
+      "disk_hash": "3a49153f28a7d4dd539108f6dcc151bb"
+    },
+    {
+      "path": "train/images/fa_IMG0004264.jpg",
+      "manifest_hash": "d8284e1233976fd59b522874f8c80c66",
+      "disk_hash": "c4f1dea60b1848b16360dee785639660"
+    },
+    {
+      "path": "train/images/fa_IMG0004270.jpg",
+      "manifest_hash": "67456dd082e59f23a7fbc5b2ed55c0f3",
+      "disk_hash": "6ac02d78245ebf92059c1f1df403d39f"
+    },
+    {
+      "path": "train/images/fa_IMG0004274.jpg",
+      "manifest_hash": "ef3935f393af089e71a058c8d1b9f289",
+      "disk_hash": "93d3978a12b7e04165678813fea21d87"
+    },
+    {
+      "path": "train/images/fa_IMG0004287.jpg",
+      "manifest_hash": "34dd903cd176b740845f1e352bbd1930",
+      "disk_hash": "43c6c9f7cd9d520efc01070ae14e1eeb"
+    },
+    {
+      "path": "train/images/fa_IMG0004307.jpg",
+      "manifest_hash": "cd541b7f6e2576f4e9c4c7994b72246c",
+      "disk_hash": "810d98506ac35bb2c93bb5519a931581"
+    },
+    {
+      "path": "train/images/fa_IMG0004310.jpg",
+      "manifest_hash": "ca3c8c27c543c2510f6e74c816f2cc8c",
+      "disk_hash": "b8f094d9995eb4624a0934b95dac386f"
+    },
+    {
+      "path": "val/images/fa_IMG0004172.jpg",
+      "manifest_hash": "9c393b5ab85f05ebf78b971e45e7914c",
+      "disk_hash": "92cac7f3eff7582cb895d16f0170b7ae"
+    },
+    {
+      "path": "val/images/fa_IMG0004241.jpg",
+      "manifest_hash": "e1905da0b68f07ea0be6205678c528db",
+      "disk_hash": "16e1bcd1bab49a3bea15a2672a904e3d"
+    },
+    {
+      "path": "val/images/fa_IMG0004243.jpg",
+      "manifest_hash": "88b096337cab7c86d10bb30823964070",
+      "disk_hash": "855df70a0af867560c88e89c1b2d244c"
+    },
+    {
+      "path": "val/images/fa_IMG0004280.jpg",
+      "manifest_hash": "24fc42d94b62eef00f95ca9a65305dad",
+      "disk_hash": "ffcff5c7e3f5e1cf0885a039a1870973"
+    }
+  ]
+}

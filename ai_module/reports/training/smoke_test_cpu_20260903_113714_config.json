@@ -1,0 +1,42 @@
+{
+  "experiment_id": "smoke_test_cpu_20260903_113714",
+  "dataset_version": "frozen_v1",
+  "model_architecture": "yolov8n",
+  "pretrained_weights": "yolov8n.pt",
+  "num_classes": 1,
+  "class_names": [
+    "fracture"
+  ],
+  "dataset_yaml": "/home/nimamakhmali/Documents/Ai Project /xray-fracture-detection-ai/ai_module/configs/dataset.yaml",
+  "image_size": 640,
+  "epochs": 2,
+  "batch_size": 4,
+  "optimizer": "SGD",
+  "learning_rate": 0.01,
+  "weight_decay": 0.0005,
+  "momentum": 0.937,
+  "device": "cpu",
+  "seed": 42,
+  "early_stopping_patience": 15,
+  "workers": 2,
+  "project_dir": "/home/nimamakhmali/Documents/Ai Project /xray-fracture-detection-ai/ai_module/runs/detect",
+  "run_name": "smoke_test_cpu_20260903_113714",
+  "resume": false,
+  "use_custom_augmentation": false,
+  "augmentation_probability": 0.5,
+  "best_epoch": -1,
+  "best_map50": -1.0,
+  "training_duration_seconds": -1.0,
+  "checkpoint_best": "",
+  "checkpoint_last": "",
+  "status": "initialized",
+  "error": "",
+  "framework_versions": {
+    "python": "3.12.3",
+    "torch": "2.13.0+cu130",
+    "cuda": "N/A",
+    "ultralytics": "8.4.127",
+    "cv2": "5.0.0",
+    "numpy": "2.5.2"
+  }
+}
