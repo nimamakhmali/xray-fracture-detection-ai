@@ -1,0 +1,47 @@
+{
+  "run_id": "smoke_test_cpu_20260903_113714_best_2806747e",
+  "weights": "/home/nimamakhmali/Documents/Ai Project /xray-fracture-detection-ai/ai_module/models/checkpoints/smoke_test_cpu_20260903_113714_best.pt",
+  "checkpoint_sha256": "2806747e7620b6b5d754fc09f358de29397cdc6ffff3369f2d36ca748ada9390",
+  "experiment_id": "UNAVAILABLE",
+  "dataset_version": "frozen_v1",
+  "target_layer": "model.9",
+  "conf": 0.25,
+  "iou": 0.45,
+  "seed": 42,
+  "val_positives_skipped_no_detection": 0,
+  "method_counts": {
+    "gradcam": 2,
+    "activation": 0
+  },
+  "entries": [
+    {
+      "image": "/home/nimamakhmali/Documents/Ai Project /xray-fracture-detection-ai/ai_module/data/processed/val/images/grz_0632_0259759762_08_WRI-R1_F011.png",
+      "detections_explained": 1,
+      "methods": [
+        "gradcam"
+      ],
+      "confidences": [
+        0.705
+      ],
+      "anchor_iou": [
+        0.982
+      ],
+      "output_dir": "/home/nimamakhmali/Documents/Ai Project /xray-fracture-detection-ai/ai_module/runs/explainability/smoke_test_cpu_20260903_113714_best_2806747e/grz_0632_0259759762_08_WRI-R1_F011"
+    },
+    {
+      "image": "/home/nimamakhmali/Documents/Ai Project /xray-fracture-detection-ai/ai_module/data/processed/val/images/grz_2613_0872599997_01_WRI-L2_F007.png",
+      "detections_explained": 1,
+      "methods": [
+        "gradcam"
+      ],
+      "confidences": [
+        0.2968
+      ],
+      "anchor_iou": [
+        0.988
+      ],
+      "output_dir": "/home/nimamakhmali/Documents/Ai Project /xray-fracture-detection-ai/ai_module/runs/explainability/smoke_test_cpu_20260903_113714_best_2806747e/grz_2613_0872599997_01_WRI-L2_F007"
+    }
+  ],
+  "disclaimer": "Heatmaps are model-debugging artifacts; not medically validated."
+}

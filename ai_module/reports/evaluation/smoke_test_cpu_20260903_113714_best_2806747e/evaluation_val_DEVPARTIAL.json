@@ -1,0 +1,325 @@
+{
+  "run_id": "smoke_test_cpu_20260903_113714_best_2806747e",
+  "split": "val",
+  "dev_partial": true,
+  "created_at": "2026-09-04T08:36:40.245104+00:00",
+  "weights": "/home/nimamakhmali/Documents/Ai Project /xray-fracture-detection-ai/ai_module/models/checkpoints/smoke_test_cpu_20260903_113714_best.pt",
+  "weights_sha256": "2806747e7620b6b5d754fc09f358de29397cdc6ffff3369f2d36ca748ada9390",
+  "experiment_id": "UNAVAILABLE",
+  "dataset_version": "frozen_v1",
+  "thresholds": {
+    "operating_confidence": 0.25,
+    "nms_iou": 0.45,
+    "match_iou": 0.5,
+    "map_conf": 0.001,
+    "map_nms_iou": 0.7
+  },
+  "num_images": 60,
+  "object_level": {
+    "combined": {
+      "level": "object",
+      "subset": "combined",
+      "num_images": 60,
+      "map50": 0.537,
+      "map50_95": 0.2789,
+      "ultralytics_precision_f1opt": 0.6352,
+      "ultralytics_recall_f1opt": 0.4306,
+      "ultralytics_speed_ms": {
+        "preprocess": 1.15,
+        "inference": 80.75,
+        "loss": 0.0,
+        "postprocess": 0.5
+      },
+      "ultralytics_val_batch": 16,
+      "note": "P/R from Ultralytics are at its F1-optimal confidence, NOT at the operating threshold.",
+      "operating_threshold": 0.25,
+      "match_iou": 0.5,
+      "num_gt_boxes": 72,
+      "num_pred_boxes": 4,
+      "tp": 3,
+      "fp": 1,
+      "fn": 69,
+      "precision": 0.75,
+      "recall": 0.0417,
+      "f1": 0.0789,
+      "matched_iou_mean": 0.6911,
+      "matched_iou_median": 0.6763,
+      "poor_localization_preds": 1
+    },
+    "fracatlas": {
+      "level": "object",
+      "subset": "fracatlas",
+      "num_images": 30,
+      "map50": 0.2642,
+      "map50_95": 0.0919,
+      "ultralytics_precision_f1opt": 0.4441,
+      "ultralytics_recall_f1opt": 0.3158,
+      "ultralytics_speed_ms": {
+        "preprocess": 1.49,
+        "inference": 97.89,
+        "loss": 0.0,
+        "postprocess": 1.14
+      },
+      "ultralytics_val_batch": 16,
+      "note": "P/R from Ultralytics are at its F1-optimal confidence, NOT at the operating threshold.",
+      "operating_threshold": 0.25,
+      "match_iou": 0.5,
+      "num_gt_boxes": 38,
+      "num_pred_boxes": 4,
+      "tp": 3,
+      "fp": 1,
+      "fn": 35,
+      "precision": 0.75,
+      "recall": 0.0789,
+      "f1": 0.1429,
+      "matched_iou_mean": 0.6911,
+      "matched_iou_median": 0.6763,
+      "poor_localization_preds": 1
+    },
+    "grazpedwri": {
+      "level": "object",
+      "subset": "grazpedwri",
+      "num_images": 30,
+      "map50": 0.8402,
+      "map50_95": 0.483,
+      "ultralytics_precision_f1opt": 0.8104,
+      "ultralytics_recall_f1opt": 0.7546,
+      "ultralytics_speed_ms": {
+        "preprocess": 1.03,
+        "inference": 68.04,
+        "loss": 0.0,
+        "postprocess": 1.11
+      },
+      "ultralytics_val_batch": 16,
+      "note": "P/R from Ultralytics are at its F1-optimal confidence, NOT at the operating threshold.",
+      "operating_threshold": 0.25,
+      "match_iou": 0.5,
+      "num_gt_boxes": 34,
+      "num_pred_boxes": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 34,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "matched_iou_mean": -1.0,
+      "matched_iou_median": -1.0,
+      "poor_localization_preds": 0
+    }
+  },
+  "image_level": {
+    "combined": {
+      "level": "image",
+      "subset": "combined",
+      "operating_threshold": 0.25,
+      "num_images": 60,
+      "num_positive": 56,
+      "num_negative": 4,
+      "tp": 4,
+      "fp": 0,
+      "fn": 52,
+      "tn": 4,
+      "precision": 1.0,
+      "recall": 0.0714,
+      "specificity": 1.0,
+      "f1": 0.1333
+    },
+    "fracatlas": {
+      "level": "image",
+      "subset": "fracatlas",
+      "operating_threshold": 0.25,
+      "num_images": 30,
+      "num_positive": 30,
+      "num_negative": 0,
+      "tp": 4,
+      "fp": 0,
+      "fn": 26,
+      "tn": 0,
+      "precision": 1.0,
+      "recall": 0.1333,
+      "specificity": 0.0,
+      "f1": 0.2353
+    },
+    "grazpedwri": {
+      "level": "image",
+      "subset": "grazpedwri",
+      "operating_threshold": 0.25,
+      "num_images": 30,
+      "num_positive": 26,
+      "num_negative": 4,
+      "tp": 0,
+      "fp": 0,
+      "fn": 26,
+      "tn": 4,
+      "precision": 0.0,
+      "recall": 0.0,
+      "specificity": 1.0,
+      "f1": 0.0
+    }
+  },
+  "timing": {
+    "note": "batch-1 predict pass (no warm-up exclusion) — scripts/benchmark.py is authoritative",
+    "device": "cpu",
+    "images": 60,
+    "inference_ms_mean": 113.35,
+    "inference_ms_median": 113.35,
+    "total_ms_mean": 116.13,
+    "ultralytics_val_speed_ms_per_image": {
+      "preprocess": 1.15,
+      "inference": 80.75,
+      "loss": 0.0,
+      "postprocess": 0.5
+    },
+    "ultralytics_val_batch": 16
+  },
+  "error_analysis": {
+    "operating_threshold": 0.25,
+    "match_iou": 0.5,
+    "sample_type_counts_by_source": {
+      "TP_correct_localization": {
+        "fracatlas": 3,
+        "grazpedwri": 0
+      },
+      "TP_poor_or_partial_localization": {
+        "fracatlas": 1,
+        "grazpedwri": 0
+      },
+      "FN_missed": {
+        "fracatlas": 26,
+        "grazpedwri": 26
+      },
+      "FP_false_detection": {
+        "fracatlas": 0,
+        "grazpedwri": 0
+      },
+      "TN": {
+        "fracatlas": 0,
+        "grazpedwri": 4
+      }
+    },
+    "image_level_miss_rate_by_source": {
+      "fracatlas": 0.8667,
+      "grazpedwri": 1.0
+    },
+    "poor_localization_preds_by_source": {
+      "fracatlas": 1,
+      "grazpedwri": 0
+    },
+    "example_ids": {
+      "TP_correct_localization": [
+        "16984",
+        "16988",
+        "17011"
+      ],
+      "TP_poor_or_partial_localization": [
+        "16992"
+      ],
+      "FN_missed": [
+        "16983",
+        "16985",
+        "16986",
+        "16987",
+        "16989",
+        "16990",
+        "16991",
+        "16993",
+        "16994",
+        "16995"
+      ],
+      "FP_false_detection": [],
+      "TN": [
+        "17605",
+        "17606",
+        "17607",
+        "17608"
+      ]
+    },
+    "clinically_adjacent_negatives": {
+      "status": "NOT_TRACKED_PER_SAMPLE",
+      "note": "Phase 1 reported 169 GRAZPEDWRI-DX fracture-negative images with fracture-adjacent findings (periosteal reaction, pronator sign, bone anomaly). The manifest annotation_status only distinguishes positive_clean/negative_clean, so FPs cannot be attributed to these cases per-sample in Phase 2. Recorded as a limitation; no relabeling was performed."
+    }
+  },
+  "domain_shift": {
+    "object_map50": {
+      "fracatlas": 0.2642,
+      "grazpedwri": 0.8402,
+      "delta_fa_minus_grz": -0.576
+    },
+    "object_map50_95": {
+      "fracatlas": 0.0919,
+      "grazpedwri": 0.483,
+      "delta_fa_minus_grz": -0.3911
+    },
+    "object_recall_at_threshold": {
+      "fracatlas": 0.0789,
+      "grazpedwri": 0.0,
+      "delta": 0.0789
+    },
+    "image_recall": {
+      "fracatlas": 0.1333,
+      "grazpedwri": 0.0,
+      "delta": 0.1333
+    },
+    "image_precision": {
+      "fracatlas": 1.0,
+      "grazpedwri": 0.0,
+      "delta": 1.0
+    },
+    "positive_rate": {
+      "fracatlas": 1.0,
+      "grazpedwri": 0.8667
+    },
+    "training_share": "grazpedwri ≈ 83.5% of training images, fracatlas ≈ 16.5% (frozen_v1)",
+    "hypotheses_not_conclusions": [
+      "anatomical scope: pediatric wrist only (GRAZ) vs multi-region adult (FracAtlas)",
+      "class prior: ~67% positive (GRAZ) vs ~18% positive (FracAtlas)",
+      "training data share strongly favours GRAZ",
+      "annotation style / box tightness may differ between sources",
+      "FracAtlas IMG0004000+ batch had systematic JPEG issues (58 dropped, 27 EOI-less)"
+    ],
+    "note": "Differences are observations; causes are hypotheses requiring dedicated analysis."
+  },
+  "freeze_verification": {
+    "before": {
+      "mode": "quick",
+      "version": "frozen_v1",
+      "created_at": "2026-09-04T07:33:45.781219+00:00",
+      "ok": true,
+      "mismatches": []
+    },
+    "after": {
+      "mode": "quick",
+      "version": "frozen_v1",
+      "created_at": "2026-09-04T07:33:45.781219+00:00",
+      "ok": true,
+      "mismatches": [],
+      "changed_count": 0
+    }
+  },
+  "provenance": {
+    "git_commit": "b09e4f2cdaad6a8cb095ce7144cfc8741f20c043",
+    "manifest_sha256": "723371399d98c0af38a326593dbc875cd8526e8742a2ec9062b5b3266524ffe5",
+    "dataset_yaml_sha256": "f7620a9ccbd96b02c82de1a34df3985efe54e7f9f3cc1b357bce8854dbee6f4d",
+    "training_status": "UNAVAILABLE",
+    "run_kind": "UNAVAILABLE"
+  },
+  "environment": {
+    "python": "3.12.3",
+    "torch": "2.13.0+cu130",
+    "ultralytics": "8.4.127",
+    "device": "cpu",
+    "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.39"
+  },
+  "known_limitations": [
+    "FracAtlas: patient identifiers unavailable → image-level split; patient-level leakage unverifiable.",
+    "GRAZPEDWRI-DX: 169 fracture-negative images contain fracture-adjacent findings (not tracked per sample).",
+    "Domain: GRAZPEDWRI-DX is pediatric wrist only; FracAtlas is multi-region. Performance is not uniform across anatomy.",
+    "Test split was touched once by an exploratory evaluation on 2026-09-03 (file EXPLORATORY_evaluation_test_20260903_DO_NOT_CITE.json); no tuning decision was derived from it.",
+    "Research prototype — not clinically validated."
+  ],
+  "evaluation_duration_seconds": 25.2,
+  "artifacts": {
+    "predictions": "/home/nimamakhmali/Documents/Ai Project /xray-fracture-detection-ai/ai_module/runs/evaluate/smoke_test_cpu_20260903_113714_best_2806747e/predictions_val.jsonl",
+    "visual_samples": "/home/nimamakhmali/Documents/Ai Project /xray-fracture-detection-ai/ai_module/runs/evaluate/smoke_test_cpu_20260903_113714_best_2806747e/visual_samples_val"
+  }
+}
