@@ -1,0 +1,574 @@
+{
+  "meta": {
+    "generated_at": "2026-09-04T19:29:35",
+    "manifest_path": "/home/nimamakhmali/Documents/Ai Project /xray-fracture-detection-ai/ai_module/data/processed/manifest.csv",
+    "manifest_sha256": "723371399d98c0af38a326593dbc875cd8526e8742a2ec9062b5b3266524ffe5",
+    "manifest_rows": 24337,
+    "processed_root": "/home/nimamakhmali/Documents/Ai Project /xray-fracture-detection-ai/ai_module/data/processed",
+    "dataset_yaml_core": {
+      "nc": 1,
+      "names": [
+        "fracture"
+      ],
+      "path": "data/processed",
+      "train": "train/images",
+      "val": "val/images",
+      "test": "test/images",
+      "split": {
+        "train": 0.7,
+        "val": 0.15,
+        "test": 0.15,
+        "random_seed": 42,
+        "stratified": true
+      }
+    },
+    "figures": [
+      "fig01_split_counts",
+      "fig02_label_balance",
+      "fig03_source_counts",
+      "fig04_source_by_split",
+      "fig05_label_by_split",
+      "fig06_label_by_source",
+      "fig07_source_split_label_table",
+      "fig08_boxes_per_image",
+      "fig09_box_area_distribution",
+      "fig10_box_shape",
+      "fig11_box_center_heatmap",
+      "fig12_image_resolution",
+      "fig13_annotation_status",
+      "fig14_patient_id_coverage",
+      "fig15_class_ids_in_labels",
+      "fig16_exclusion_funnel",
+      "fig16b_split_pre_post_drop",
+      "fig17_summary_table",
+      "fig18_fracatlas_integrity_locality"
+    ]
+  },
+  "labels": {
+    "skipped": false,
+    "label_files_found": 24337,
+    "label_files_missing": 0,
+    "malformed_lines": 0,
+    "total_boxes_parsed": 19005,
+    "boxes_per_split": {
+      "train": 13173,
+      "val": 2918,
+      "test": 2914
+    },
+    "boxes_per_source": {
+      "FracAtlas": 915,
+      "GRAZPEDWRI-DX": 18090
+    },
+    "class_id_histogram": {
+      "0": 19005
+    },
+    "num_boxes_mismatch_vs_manifest": 0,
+    "num_boxes_mismatch_sample_ids": []
+  },
+  "fig01": {
+    "total": 24337,
+    "train": 16983,
+    "val": 3686,
+    "test": 3668,
+    "ratio": {
+      "train": 0.6978,
+      "val": 0.1515,
+      "test": 0.1507
+    }
+  },
+  "fig02": {
+    "positive": 14263,
+    "negative": 10074,
+    "positive_ratio": 0.5861
+  },
+  "fig03": {
+    "FracAtlas": 4010,
+    "GRAZPEDWRI-DX": 20327
+  },
+  "fig04": {
+    "counts": {
+      "train": {
+        "FracAtlas": 2806,
+        "GRAZPEDWRI-DX": 14177
+      },
+      "val": {
+        "FracAtlas": 598,
+        "GRAZPEDWRI-DX": 3088
+      },
+      "test": {
+        "FracAtlas": 606,
+        "GRAZPEDWRI-DX": 3062
+      }
+    },
+    "ratio_within_source": {
+      "FracAtlas": {
+        "train": 0.6998,
+        "val": 0.1491,
+        "test": 0.1511
+      },
+      "GRAZPEDWRI-DX": {
+        "train": 0.6974,
+        "val": 0.1519,
+        "test": 0.1506
+      }
+    }
+  },
+  "fig05": {
+    "train": {
+      "positive": 9894,
+      "negative": 7089,
+      "positive_rate": 0.5826
+    },
+    "val": {
+      "positive": 2160,
+      "negative": 1526,
+      "positive_rate": 0.586
+    },
+    "test": {
+      "positive": 2209,
+      "negative": 1459,
+      "positive_rate": 0.6022
+    }
+  },
+  "fig06": {
+    "FracAtlas": {
+      "positive": 713,
+      "negative": 3297,
+      "positive_rate": 0.1778
+    },
+    "GRAZPEDWRI-DX": {
+      "positive": 13550,
+      "negative": 6777,
+      "positive_rate": 0.6666
+    }
+  },
+  "fig07": {
+    "FracAtlas/train": {
+      "positive": 499,
+      "negative": 2307,
+      "total": 2806
+    },
+    "FracAtlas/val": {
+      "positive": 106,
+      "negative": 492,
+      "total": 598
+    },
+    "FracAtlas/test": {
+      "positive": 108,
+      "negative": 498,
+      "total": 606
+    },
+    "GRAZPEDWRI-DX/train": {
+      "positive": 9395,
+      "negative": 4782,
+      "total": 14177
+    },
+    "GRAZPEDWRI-DX/val": {
+      "positive": 2054,
+      "negative": 1034,
+      "total": 3088
+    },
+    "GRAZPEDWRI-DX/test": {
+      "positive": 2101,
+      "negative": 961,
+      "total": 3062
+    }
+  },
+  "fig08": {
+    "total_boxes_manifest": 19005,
+    "positive_images_with_zero_boxes": 0,
+    "negative_images_with_boxes": 0,
+    "per_source": {
+      "FracAtlas": {
+        "count": 713.0,
+        "mean": 1.283,
+        "std": 0.572,
+        "min": 1.0,
+        "25%": 1.0,
+        "50%": 1.0,
+        "75%": 1.0,
+        "max": 5.0
+      },
+      "GRAZPEDWRI-DX": {
+        "count": 13550.0,
+        "mean": 1.335,
+        "std": 0.503,
+        "min": 1.0,
+        "25%": 1.0,
+        "50%": 1.0,
+        "75%": 2.0,
+        "max": 4.0
+      }
+    }
+  },
+  "fig09": {
+    "FracAtlas": {
+      "n": 915,
+      "median_area": 0.00401,
+      "mean_area": 0.00666,
+      "share_below_1pct": 0.8361,
+      "share_below_0_1pct": 0.0317
+    },
+    "GRAZPEDWRI-DX": {
+      "n": 18090,
+      "median_area": 0.01648,
+      "mean_area": 0.01886,
+      "share_below_1pct": 0.2287,
+      "share_below_0_1pct": 0.0
+    }
+  },
+  "fig10": {
+    "FracAtlas": {
+      "median_w": 0.065,
+      "median_h": 0.0617,
+      "median_aspect": 0.9855
+    },
+    "GRAZPEDWRI-DX": {
+      "median_w": 0.206,
+      "median_h": 0.0783,
+      "median_aspect": 2.504
+    }
+  },
+  "fig11": {
+    "Combined": {
+      "mean_cx": 0.5019,
+      "mean_cy": 0.5239
+    },
+    "FracAtlas": {
+      "mean_cx": 0.5113,
+      "mean_cy": 0.4629
+    },
+    "GRAZPEDWRI-DX": {
+      "mean_cx": 0.5014,
+      "mean_cy": 0.5269
+    }
+  },
+  "fig12": {
+    "FracAtlas": {
+      "n": 4010,
+      "unique_resolutions": 11,
+      "top5_resolutions": {
+        "373x454": 2644,
+        "454x373": 1021,
+        "2304x2880": 303,
+        "2880x2304": 23,
+        "1760x2140": 13
+      },
+      "width_median": 373.0,
+      "height_median": 454.0
+    },
+    "GRAZPEDWRI-DX": {
+      "n": 20327,
+      "unique_resolutions": 19039,
+      "top5_resolutions": {
+        "468x918": 5,
+        "662x982": 4,
+        "512x1038": 4,
+        "501x1000": 4,
+        "474x980": 3
+      },
+      "width_median": 549.0,
+      "height_median": 999.0
+    }
+  },
+  "fig13": {
+    "FracAtlas": {
+      "negative_clean": 3297,
+      "positive_clean": 713
+    },
+    "GRAZPEDWRI-DX": {
+      "negative_clean": 6777,
+      "positive_clean": 13550
+    }
+  },
+  "fig14": {
+    "FracAtlas": {
+      "available": 0,
+      "unavailable": 4010,
+      "coverage": 0.0
+    },
+    "GRAZPEDWRI-DX": {
+      "available": 20327,
+      "unavailable": 0,
+      "coverage": 1.0,
+      "unique_patients": 6091,
+      "images_per_patient_mean": 3.337,
+      "images_per_patient_max": 30,
+      "patients_in_more_than_one_split": 0
+    },
+    "hash_overlap_recomputed": {
+      "train_val": 0,
+      "train_test": 0,
+      "val_test": 0
+    },
+    "duplicate_hashes_within_manifest": 0
+  },
+  "fig15": {
+    "0": 19005
+  },
+  "fig16": {
+    "duplicate_label_conflicts": 0,
+    "FracAtlas": {
+      "raw": 4084,
+      "valid": 4083,
+      "orphan": 1,
+      "duplicates": 15,
+      "duplicates_positive": 4,
+      "integrity_failed": 58,
+      "other_drops": 0,
+      "expected_final": 4010,
+      "manifest_final": 4010,
+      "reconciled": true,
+      "raw_positive": 717,
+      "manifest_positive": 713,
+      "positives_lost_to_integrity": 0
+    },
+    "GRAZPEDWRI-DX": {
+      "raw": 20327,
+      "valid": 20327,
+      "orphan": 0,
+      "duplicates": 0,
+      "duplicates_positive": 0,
+      "integrity_failed": 0,
+      "other_drops": 0,
+      "expected_final": 20327,
+      "manifest_final": 20327,
+      "reconciled": true,
+      "raw_positive": 13550,
+      "manifest_positive": 13550,
+      "positives_lost_to_integrity": 0
+    },
+    "split_pre_vs_post_drop": [
+      {
+        "split": "train",
+        "pre_count": 17024,
+        "post_count": 16983,
+        "delta": -41,
+        "pre_positive": 9894,
+        "post_positive": 9894,
+        "pre_negative": 7130,
+        "post_negative": 7089
+      },
+      {
+        "split": "val",
+        "pre_count": 3697,
+        "post_count": 3686,
+        "delta": -11,
+        "pre_positive": 2160,
+        "post_positive": 2160,
+        "pre_negative": 1537,
+        "post_negative": 1526
+      },
+      {
+        "split": "test",
+        "pre_count": 3674,
+        "post_count": 3668,
+        "delta": -6,
+        "pre_positive": 2209,
+        "post_positive": 2209,
+        "pre_negative": 1465,
+        "post_negative": 1459
+      }
+    ],
+    "split_delta_total": -58
+  },
+  "fig17": {
+    "Total images": "24,337",
+    "Train / Val / Test": "16,983 / 3,686 / 3,668",
+    "Split ratio": "69.8% / 15.2% / 15.1%",
+    "Positive / Negative": "14,263 / 10,074",
+    "FracAtlas (pos / neg)": "4,010  (713 / 3,297)",
+    "GRAZPEDWRI-DX (pos / neg)": "20,327  (13,550 / 6,777)",
+    "Boxes (manifest / parsed labels)": "19,005 / 19005",
+    "Random seed": "42"
+  },
+  "fig18": {
+    "kept_range": [
+      0,
+      4389
+    ],
+    "dropped_range": [
+      4028,
+      4308
+    ],
+    "synced_range": [
+      4027,
+      4310
+    ],
+    "dropped_all_negative": null
+  },
+  "synced_dimension_check": {
+    "checked": 27,
+    "dimension_mismatch": 0,
+    "list": []
+  },
+  "cross_check": {
+    "validation_report": {
+      "total_images": {
+        "reference": 24337,
+        "computed_here": 24337,
+        "match": true
+      },
+      "positive_images": {
+        "reference": 14263,
+        "computed_here": 14263,
+        "match": true
+      },
+      "negative_images": {
+        "reference": 10074,
+        "computed_here": 10074,
+        "match": true
+      },
+      "total_boxes": {
+        "reference": 19005,
+        "computed_here": 19005,
+        "match": true
+      },
+      "train_images": {
+        "reference": 16983,
+        "computed_here": 16983,
+        "match": true
+      },
+      "val_images": {
+        "reference": 3686,
+        "computed_here": 3686,
+        "match": true
+      },
+      "test_images": {
+        "reference": 3668,
+        "computed_here": 3668,
+        "match": true
+      },
+      "train_positive": {
+        "reference": 9894,
+        "computed_here": 9894,
+        "match": true
+      },
+      "val_positive": {
+        "reference": 2160,
+        "computed_here": 2160,
+        "match": true
+      },
+      "test_positive": {
+        "reference": 2209,
+        "computed_here": 2209,
+        "match": true
+      },
+      "train_boxes": {
+        "reference": 13173,
+        "computed_here": 13173,
+        "match": true
+      },
+      "val_boxes": {
+        "reference": 2918,
+        "computed_here": 2918,
+        "match": true
+      },
+      "test_boxes": {
+        "reference": 2914,
+        "computed_here": 2914,
+        "match": true
+      }
+    },
+    "dataset_yaml_stats": {
+      "total_images": {
+        "reference": 24337,
+        "computed_here": 24337,
+        "match": true
+      },
+      "train_images": {
+        "reference": 16983,
+        "computed_here": 16983,
+        "match": true
+      },
+      "val_images": {
+        "reference": 3686,
+        "computed_here": 3686,
+        "match": true
+      },
+      "test_images": {
+        "reference": 3668,
+        "computed_here": 3668,
+        "match": true
+      },
+      "fracture_positive": {
+        "reference": 14263,
+        "computed_here": 14263,
+        "match": true
+      },
+      "fracture_negative": {
+        "reference": 10074,
+        "computed_here": 10074,
+        "match": true
+      },
+      "by_dataset_fracatlas": {
+        "reference": 4010,
+        "computed_here": 4010,
+        "match": true
+      },
+      "by_dataset_grazpedwri": {
+        "reference": 20327,
+        "computed_here": 20327,
+        "match": true
+      }
+    },
+    "all_matched": true,
+    "validator_status": "READY_FOR_TRAINING",
+    "validator_patient_leakage": {
+      "train_val_overlap": [],
+      "train_test_overlap": [],
+      "val_test_overlap": [],
+      "datasets_with_unknown_patient_id": [
+        "fracatlas"
+      ]
+    },
+    "validator_hash_leakage": {
+      "train_val_hash_overlap": [],
+      "train_test_hash_overlap": [],
+      "val_test_hash_overlap": []
+    }
+  },
+  "hash_verification": {
+    "checked": 24337,
+    "missing_files": 0,
+    "hash_mismatches": 0,
+    "mismatch_list": [],
+    "missing_list": []
+  },
+  "hash_sync_events": {
+    "synced_at": "20260904T072559Z",
+    "updated_rows": 27,
+    "by_source": {
+      "fracatlas": 27
+    },
+    "paths": [
+      "test/images/fa_IMG0004302.jpg",
+      "train/images/fa_IMG0004027.jpg",
+      "train/images/fa_IMG0004062.jpg",
+      "train/images/fa_IMG0004075.jpg",
+      "train/images/fa_IMG0004094.jpg",
+      "train/images/fa_IMG0004097.jpg",
+      "train/images/fa_IMG0004105.jpg",
+      "train/images/fa_IMG0004107.jpg",
+      "train/images/fa_IMG0004146.jpg",
+      "train/images/fa_IMG0004167.jpg",
+      "train/images/fa_IMG0004179.jpg",
+      "train/images/fa_IMG0004182.jpg",
+      "train/images/fa_IMG0004195.jpg",
+      "train/images/fa_IMG0004214.jpg",
+      "train/images/fa_IMG0004223.jpg",
+      "train/images/fa_IMG0004225.jpg",
+      "train/images/fa_IMG0004244.jpg",
+      "train/images/fa_IMG0004264.jpg",
+      "train/images/fa_IMG0004270.jpg",
+      "train/images/fa_IMG0004274.jpg",
+      "train/images/fa_IMG0004287.jpg",
+      "train/images/fa_IMG0004307.jpg",
+      "train/images/fa_IMG0004310.jpg",
+      "val/images/fa_IMG0004172.jpg",
+      "val/images/fa_IMG0004241.jpg",
+      "val/images/fa_IMG0004243.jpg",
+      "val/images/fa_IMG0004280.jpg"
+    ]
+  }
+}
